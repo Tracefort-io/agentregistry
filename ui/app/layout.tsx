@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans } from "next/font/google"
 import { Navigation } from "@/components/navigation"
 import { Footer } from "@/components/footer"
 import { ThemeProvider } from "@/components/theme-provider"
+import { CatalogNavProvider } from "@/lib/catalog-nav"
 import { Toaster } from "@/components/ui/sonner"
 import "./globals.css"
 
@@ -12,8 +13,8 @@ const jakarta = Plus_Jakarta_Sans({
 })
 
 export const metadata: Metadata = {
-  title: "artcl - agent registry admin",
-  description: "Admin interface for managing agent registry",
+  title: "Tracefort",
+  description: "Admin interface for managing Tracefort",
   icons: {
     icon: "/icon.svg",
   },
@@ -28,13 +29,17 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${jakarta.variable} font-sans`}>
         <ThemeProvider>
-          <div className="min-h-screen flex flex-col">
-            <Navigation />
-            <div className="flex-1">
-              {children}
+          <CatalogNavProvider>
+            <div className="min-h-screen flex flex-col md:flex-row">
+              <Navigation />
+              <div className="flex-1 min-w-0 flex flex-col">
+                <div className="flex-1">
+                  {children}
+                </div>
+                <Footer />
+              </div>
             </div>
-            <Footer />
-          </div>
+          </CatalogNavProvider>
           <Toaster />
         </ThemeProvider>
       </body>

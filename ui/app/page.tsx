@@ -34,6 +34,7 @@ import { AddPromptDialog } from "@/components/add-prompt-dialog"
 import { DeployDialog } from "@/components/deploy-dialog"
 import { listServersV0, listSkillsV0, listAgentsV0, listPromptsV0, ServerResponse, SkillResponse, AgentResponse, PromptResponse } from "@/lib/admin-api"
 import MCPIcon from "@/components/icons/mcp"
+import { CATALOG_SECTIONS, useCatalogNav } from "@/lib/catalog-nav"
 import {
   Search,
   RefreshCw,
@@ -69,17 +70,9 @@ interface GroupedAgent extends AgentResponse {
   allTags: AgentResponse[]
 }
 
-type TabKey = "servers" | "skills" | "agents" | "prompts"
-
-const TAB_CONFIG: { key: TabKey; label: string; icon: React.ReactNode }[] = [
-  { key: "servers", label: "Servers", icon: <MCPIcon /> },
-  { key: "skills", label: "Skills", icon: <Zap className="h-3.5 w-3.5" /> },
-  { key: "agents", label: "Agents", icon: <Bot className="h-3.5 w-3.5" /> },
-  { key: "prompts", label: "Prompts", icon: <FileText className="h-3.5 w-3.5" /> },
-]
-
 export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>("servers")
+  const { activeTab, setCounts } = useCatalogNav()
+  const activeSection = CATALOG_SECTIONS.find((s) => s.key === activeTab)!
   const [servers, setServers] = useState<ServerResponse[]>([])
   const [groupedServers, setGroupedServers] = useState<GroupedServer[]>([])
   const [groupedSkills, setGroupedSkills] = useState<GroupedSkill[]>([])
@@ -392,14 +385,16 @@ export default function AdminPage() {
     }
   }, [searchQuery, groupedSkills, groupedAgents, groupedPrompts])
 
-  const getCount = (tab: TabKey) => {
-    switch (tab) {
-      case "servers": return groupedServers.length
-      case "skills": return groupedSkills.length
-      case "agents": return groupedAgents.length
-      case "prompts": return groupedPrompts.length
-    }
-  }
+  // Publish section counts to the sidebar once data has loaded.
+  useEffect(() => {
+    if (loading || error) return
+    setCounts({
+      servers: groupedServers.length,
+      skills: groupedSkills.length,
+      agents: groupedAgents.length,
+      prompts: groupedPrompts.length,
+    })
+  }, [loading, error, groupedServers, groupedSkills, groupedAgents, groupedPrompts, setCounts])
 
   if (loading) {
     return (
@@ -427,40 +422,14 @@ export default function AdminPage() {
   return (
     <main className="bg-background">
       <div className="container mx-auto px-6">
-        {/* Tab bar with counts */}
-        <div className="flex items-center justify-between border-b pt-4">
-          <div className="flex items-center gap-1">
-            {TAB_CONFIG.map(({ key, label, icon }) => (
-              <button
-                key={key}
-                onClick={() => setActiveTab(key)}
-                className={`group relative flex items-center gap-2 px-4 py-3 text-[15px] font-medium transition-colors ${
-                  activeTab === key
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <span className={`h-4 w-4 flex items-center justify-center transition-colors ${
-                  activeTab === key ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
-                }`}>
-                  {icon}
-                </span>
-                {label}
-                <span className={`text-[13px] tabular-nums px-1.5 py-0.5 rounded-full transition-colors ${
-                  activeTab === key
-                    ? "bg-primary/10 text-primary"
-                    : "bg-muted text-muted-foreground"
-                }`}>
-                  {getCount(key)}
-                </span>
-                {activeTab === key && (
-                  <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-primary rounded-full" />
-                )}
-              </button>
-            ))}
-          </div>
+        {/* Section heading; sections are chosen from the sidebar */}
+        <div className="flex items-center justify-between border-b pt-4 pb-3">
+          <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+            <span className="h-5 w-5 flex items-center justify-center text-primary">{activeSection.icon}</span>
+            {activeSection.label}
+          </h1>
 
-          <div className="flex items-center gap-2 pb-2">
+          <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" className="gap-1.5 h-8">
@@ -472,7 +441,7 @@ export default function AdminPage() {
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => setAddServerDialogOpen(true)}>
                   <span className="mr-2 h-4 w-4 flex items-center justify-center"><MCPIcon /></span>
-                  Server
+                  MCP Server
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setAddSkillDialogOpen(true)}>
                   <Zap className="mr-2 h-4 w-4" />
@@ -500,7 +469,7 @@ export default function AdminPage() {
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              placeholder={`Search ${activeTab}...`}
+              placeholder={`Search ${activeSection.label}...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 h-10 text-[15px]"
@@ -557,8 +526,8 @@ export default function AdminPage() {
             filteredServers.length === 0 ? (
               <EmptyState
                 icon={<span className="h-8 w-8 flex items-center justify-center text-muted-foreground"><MCPIcon /></span>}
-                title={groupedServers.length === 0 ? "No servers in registry" : "No servers match your filters"}
-                description={groupedServers.length === 0 ? "Add servers to get started" : "Try adjusting your search or filter criteria"}
+                title={groupedServers.length === 0 ? "No MCP servers in registry" : "No MCP servers match your filters"}
+                description={groupedServers.length === 0 ? "Add MCP servers to get started" : "Try adjusting your search or filter criteria"}
                 action={groupedServers.length === 0 ? (
                   <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAddServerDialogOpen(true)}>
                     <Plus className="h-3.5 w-3.5" /> Add Server

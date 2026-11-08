@@ -221,10 +221,10 @@ export default function DeployedPage() {
               <Server className="h-8 w-8 text-muted-foreground mb-4 opacity-40" />
               <p className="text-base font-medium mb-1">No resources deployed</p>
               <p className="text-sm text-muted-foreground mb-4 max-w-xs">
-                Deploy MCP servers or agents from the Catalog to see them here.
+                Deploy MCP servers or agents from the AI Registry to see them here.
               </p>
               <Link href="/">
-                <Button size="sm" variant="outline">Go to Catalog</Button>
+                <Button size="sm" variant="outline">Go to AI Registry</Button>
               </Link>
             </div>
           ) : (

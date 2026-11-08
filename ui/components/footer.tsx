@@ -1,33 +1,21 @@
 "use client"
 
-import { useTheme } from "next-themes"
-import { useSyncExternalStore } from "react"
-import Image from "next/image"
 import { Github } from "lucide-react"
 
 export function Footer() {
-  const { theme } = useTheme()
-  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false)
-
   return (
     <footer className="border-t mt-auto">
       <div className="container mx-auto px-6 py-6 flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Image
-            src={mounted && theme === "dark" ? "/logo-dark.svg" : "/logo-light.svg"}
-            alt="Agent Registry"
-            className="h-12 w-auto"
-            width={180}
-            height={60}
-          />
+          <span className="text-lg font-bold tracking-tight text-foreground">Tracefort Control Plane</span>
           <span>created at</span>
           <a
-            href="https://solo.io"
+            href="https://www.tracefort.io/"
             target="_blank"
             rel="noopener noreferrer"
             className="font-medium text-foreground hover:text-primary transition-colors"
           >
-            Solo.io
+            Tracefort.io
           </a>
         </div>
 

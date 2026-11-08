@@ -154,7 +154,7 @@ export function DeployDialog({ open, onOpenChange, resourceType, server, agent, 
                 required
               />
               <p className="text-xs text-muted-foreground">
-                Choose a Runtime registered by your AgentRegistry deployment.
+                Choose a Runtime registered by your Tracefort deployment.
               </p>
             </div>
 

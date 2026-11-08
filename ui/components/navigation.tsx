@@ -3,79 +3,114 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
-import { useSyncExternalStore } from "react"
-import { Moon, Sun } from "lucide-react"
+import { useState, useSyncExternalStore } from "react"
+import { Menu, Moon, Rocket, Sun } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import Image from "next/image"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
+import { CATALOG_SECTIONS, useCatalogNav } from "@/lib/catalog-nav"
 
-export function Navigation() {
+const itemClass = (active: boolean) =>
+  `group flex items-center gap-2.5 rounded-md px-3 py-2 text-[15px] font-medium transition-colors ${
+    active
+      ? "bg-primary/10 text-foreground"
+      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+  }`
+
+const iconClass = (active: boolean) =>
+  `h-4 w-4 flex items-center justify-center transition-colors ${
+    active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+  }`
+
+function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false)
-
-  const isActive = (path: string) => {
-    if (path === "/") {
-      return pathname === "/"
-    }
-    return pathname.startsWith(path)
-  }
+  const { activeTab, setActiveTab, counts } = useCatalogNav()
 
   return (
-    <nav className="border-b bg-background sticky top-0 z-50">
-      <div className="container mx-auto px-6">
-        <div className="flex items-center gap-10 h-14">
-          <Link href="/" className="flex items-center shrink-0 rounded-md px-2 py-1">
-            <Image
-              src={mounted && theme === "dark" ? "/logo-dark.svg" : "/logo-light.svg"}
-              alt="Agent Registry"
-              width={180}
-              height={60}
-              className="h-12 w-auto"
-            />
-          </Link>
+    <div className="flex h-full flex-col">
+      <Link href="/" onClick={onNavigate} className="px-3 py-4">
+        <span className="text-xl font-bold tracking-tight text-foreground">Tracefort</span>
+      </Link>
 
-          <div className="flex items-center gap-1">
-            <Link
-              href="/"
-              className={`relative px-3 py-1.5 text-[15px] font-medium transition-colors ${
-                isActive("/")
-                  ? "text-foreground after:absolute after:bottom-[-13px] after:left-1 after:right-1 after:h-[2px] after:bg-primary after:rounded-full"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Catalog
-            </Link>
-            <Link
-              href="/deployed"
-              className={`relative px-3 py-1.5 text-[15px] font-medium transition-colors ${
-                isActive("/deployed")
-                  ? "text-foreground after:absolute after:bottom-[-13px] after:left-1 after:right-1 after:h-[2px] after:bg-primary after:rounded-full"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Deployed
-            </Link>
-          </div>
-
-          <div className="ml-auto">
-            {mounted && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-              >
-                {theme === "dark" ? (
-                  <Sun className="h-4 w-4" />
-                ) : (
-                  <Moon className="h-4 w-4" />
-                )}
-              </Button>
-            )}
+      <nav className="flex-1 space-y-6 px-2 py-2">
+        <div>
+          <p className="px-3 pb-2 text-xs font-semibold text-muted-foreground">AI Registry</p>
+          <div className="space-y-0.5">
+            {CATALOG_SECTIONS.map(({ key, label, icon }) => {
+              const active = pathname === "/" && activeTab === key
+              return (
+                <Link
+                  key={key}
+                  href="/"
+                  onClick={() => {
+                    setActiveTab(key)
+                    onNavigate?.()
+                  }}
+                  className={itemClass(active)}
+                >
+                  <span className={iconClass(active)}>{icon}</span>
+                  <span className="flex-1">{label}</span>
+                  {counts && (
+                    <span className={`text-[13px] tabular-nums px-1.5 py-0.5 rounded-full transition-colors ${
+                      active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                    }`}>
+                      {counts[key]}
+                    </span>
+                  )}
+                </Link>
+              )
+            })}
           </div>
         </div>
+
+        <Link href="/deployed" onClick={onNavigate} className={itemClass(pathname.startsWith("/deployed"))}>
+          <span className={iconClass(pathname.startsWith("/deployed"))}>
+            <Rocket className="h-3.5 w-3.5" />
+          </span>
+          Deployed
+        </Link>
+      </nav>
+
+      <div className="border-t px-2 py-3">
+        {mounted && (
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-2.5 px-3 text-muted-foreground hover:text-foreground"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          >
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {theme === "dark" ? "Light mode" : "Dark mode"}
+          </Button>
+        )}
       </div>
-    </nav>
+    </div>
+  )
+}
+
+export function Navigation() {
+  const [mobileOpen, setMobileOpen] = useState(false)
+
+  return (
+    <>
+      {/* Narrow screens: top bar with a menu button that slides the sidebar out */}
+      <header className="md:hidden sticky top-0 z-50 flex h-14 items-center gap-3 border-b bg-background px-4">
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMobileOpen(true)} title="Open menu">
+          <Menu className="h-4 w-4" />
+        </Button>
+        <span className="text-lg font-bold tracking-tight text-foreground">Tracefort</span>
+      </header>
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent side="left" className="w-60 p-0">
+          <SheetTitle className="sr-only">Navigation</SheetTitle>
+          <SidebarContent onNavigate={() => setMobileOpen(false)} />
+        </SheetContent>
+      </Sheet>
+
+      {/* Wide screens: fixed left sidebar */}
+      <aside className="hidden md:block sticky top-0 h-screen w-60 shrink-0 border-r bg-background">
+        <SidebarContent />
+      </aside>
+    </>
   )
 }
