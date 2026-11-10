@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // WellKnownPath is the AuthZEN metadata path, appended to the PDP base URL.
@@ -22,6 +24,9 @@ const (
 	defaultMaxResponseBytes = 4 << 20
 	defaultCacheMaxEntries  = 10000
 	maxSearchPages          = 10000
+	// discoveryRetryAfter is how long a failed discovery is reported to
+	// callers before the PDP is asked again.
+	discoveryRetryAfter = time.Second
 )
 
 var (
@@ -72,9 +77,16 @@ type Client struct {
 	tokens   TokenSource
 	maxBytes int64
 	cache    *permitCache
+	now      func() time.Time
 
-	mu   sync.Mutex
-	meta *Metadata
+	// discovery runs at most once at a time, shared by concurrent callers.
+	discovery singleflight.Group
+
+	// mu guards the fields below; it is never held across a PDP call.
+	mu        sync.Mutex
+	meta      *Metadata
+	failedAt  time.Time
+	failedErr error
 }
 
 // New validates cfg and returns a Client. Discovery happens lazily on the
@@ -116,6 +128,7 @@ func New(cfg Config) (*Client, error) {
 	if ignore == nil {
 		ignore = []string{"request_id"}
 	}
+	c.now = now
 	c.cache = newPermitCache(cfg.CacheTTL, maxEntries, ignore, now)
 	return c, nil
 }
@@ -125,18 +138,45 @@ func normalizeURL(s string) string {
 }
 
 // Metadata returns the PDP metadata, discovering it when not cached.
+// Concurrent callers share one discovery, and each stops waiting when its
+// own context ends. A failed discovery is reported for discoveryRetryAfter
+// before the PDP is asked again.
 func (c *Client) Metadata(ctx context.Context) (Metadata, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.meta != nil {
-		return *c.meta, nil
+		meta := *c.meta
+		c.mu.Unlock()
+		return meta, nil
 	}
-	meta, err := c.discover(ctx)
-	if err != nil {
+	if c.failedErr != nil && c.now().Sub(c.failedAt) < discoveryRetryAfter {
+		err := c.failedErr
+		c.mu.Unlock()
 		return Metadata{}, err
 	}
-	c.meta = &meta
-	return meta, nil
+	c.mu.Unlock()
+
+	// The shared discovery must outlive any one caller's cancellation; it is
+	// still bounded by the client timeout inside do.
+	result := c.discovery.DoChan("discover", func() (any, error) {
+		meta, err := c.discover(context.WithoutCancel(ctx))
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if err != nil {
+			c.failedAt, c.failedErr = c.now(), err
+			return nil, err
+		}
+		c.meta, c.failedErr = &meta, nil
+		return meta, nil
+	})
+	select {
+	case <-ctx.Done():
+		return Metadata{}, fmt.Errorf("%w: discovery: %w", ErrUnavailable, ctx.Err())
+	case r := <-result:
+		if r.Err != nil {
+			return Metadata{}, r.Err
+		}
+		return r.Val.(Metadata), nil
+	}
 }
 
 // invalidate drops cached metadata so the next call re-discovers.
@@ -186,8 +226,14 @@ func (c *Client) SupportsResourceSearch(ctx context.Context) (bool, error) {
 }
 
 // Evaluate asks for one decision. Permits are served from and stored in
-// the cache; denials and errors are not cached.
+// the cache; denials and errors are not cached. With WithDecisionMemo, a
+// request repeated within the same incoming request is answered from the
+// memo, denials included.
 func (c *Client) Evaluate(ctx context.Context, req EvaluationRequest) (EvaluationResponse, error) {
+	memo := memoFrom(ctx)
+	if decision, ok := memo.lookup(req); ok {
+		return EvaluationResponse{Decision: decision}, nil
+	}
 	if c.cache.permitted(req) {
 		return EvaluationResponse{Decision: true}, nil
 	}
@@ -199,6 +245,7 @@ func (c *Client) Evaluate(ctx context.Context, req EvaluationRequest) (Evaluatio
 	if err := c.post(ctx, meta.AccessEvaluationEndpoint, req, &resp); err != nil {
 		return EvaluationResponse{}, err
 	}
+	memo.store(req, resp.Decision)
 	if resp.Decision {
 		c.cache.storePermit(req)
 	}
@@ -340,8 +387,12 @@ func (c *Client) SearchResources(ctx context.Context, req ResourceSearchRequest,
 
 func (c *Client) post(ctx context.Context, endpoint string, body, out any) error {
 	if err := c.do(ctx, http.MethodPost, endpoint, body, out); err != nil {
-		// The PDP may have moved or restarted with new metadata.
-		c.invalidate()
+		// A 404 means the endpoint moved; re-discover on the next call.
+		// Timeouts and other failures say nothing about the endpoints.
+		var se *statusError
+		if errors.As(err, &se) && se.code == http.StatusNotFound {
+			c.invalidate()
+		}
 		return err
 	}
 	return nil
@@ -396,10 +447,15 @@ func (c *Client) do(ctx context.Context, method, endpoint string, body, out any)
 		return fmt.Errorf("%w: response exceeds %d bytes", ErrUnavailable, c.maxBytes)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("%w: %s %s returned status %d", ErrUnavailable, method, endpoint, resp.StatusCode)
+		return fmt.Errorf("%w: %s %s: %w", ErrUnavailable, method, endpoint, &statusError{code: resp.StatusCode})
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
 		return fmt.Errorf("%w: decode response: %w", ErrUnavailable, err)
 	}
 	return nil
 }
+
+// statusError is a non-2xx PDP response.
+type statusError struct{ code int }
+
+func (e *statusError) Error() string { return fmt.Sprintf("returned status %d", e.code) }

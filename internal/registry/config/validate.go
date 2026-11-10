@@ -35,9 +35,8 @@ func validateAuth(cfg *Config) error {
 	default:
 		return fmt.Errorf("auth mode must be %q or %q, got %q", AuthModeDisabled, AuthModeRequired, cfg.AuthMode)
 	}
-	if cfg.AuthIssuers == "" && cfg.AuthIssuersFile == "" {
-		return fmt.Errorf("auth mode %q requires AUTH_ISSUERS or AUTH_ISSUERS_FILE", AuthModeRequired)
-	}
+	// Issuers are checked at startup instead, where an AuthnProvider supplied
+	// in AppOptions can stand in for them.
 	if cfg.AuthzenURL == "" {
 		return fmt.Errorf("auth mode %q requires AUTHZEN_URL", AuthModeRequired)
 	}

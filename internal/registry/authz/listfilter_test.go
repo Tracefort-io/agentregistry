@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,6 +63,37 @@ func TestListFilter_Search(t *testing.T) {
 	assert.Equal(t, "other/*", pdp.evals[1].Resource.ID)
 }
 
+// Resource Search results are capped like list candidates, so a PDP cannot
+// push an unbounded id set into memory and the SQL predicate.
+func TestListFilter_SearchIsCapped(t *testing.T) {
+	for _, tt := range []struct {
+		name               string
+		listMax, searchMax int
+		want               int
+	}{
+		{"defaults to the list cap", 250, 0, 250},
+		{"default list cap", 0, 0, defaultListMax},
+		{"explicit search cap", 250, 40, 40},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pdp := newMockPDP(nil)
+			pdp.search = true
+			p := newPEP(t, pdp, func(c *Config) { c.ListMax, c.SearchMax = tt.listMax, tt.searchMax })
+			_, _, err := p.ListFilter(userCtx(alice()), listIn(""))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, pdp.searchMax)
+		})
+	}
+
+	// Too many results is a 503, like too many candidates.
+	pdp := newMockPDP(nil)
+	pdp.search = true
+	pdp.resultsErr = authzen.ErrTooManyResults
+	p := newPEP(t, pdp, nil)
+	_, _, err := p.ListFilter(userCtx(alice()), listIn(""))
+	assert.Equal(t, 503, StatusOf(err))
+}
+
 func TestListFilter_Evaluations(t *testing.T) {
 	var candidates []ResourceID
 	for i := 0; i < 250; i++ {
@@ -94,6 +128,47 @@ func TestListFilter_Evaluations(t *testing.T) {
 		assert.Equal(t, "agent", b.Evaluations[0].Resource.Type)
 	}
 	assert.Empty(t, pdp.searches)
+}
+
+// concurrentPDP records how many evaluations batches run at once.
+type concurrentPDP struct {
+	*mockPDP
+	inFlight, peak atomic.Int32
+}
+
+func (c *concurrentPDP) Evaluations(ctx context.Context, req authzen.EvaluationsRequest) (authzen.EvaluationsResponse, error) {
+	n := c.inFlight.Add(1)
+	for {
+		peak := c.peak.Load()
+		if n <= peak || c.peak.CompareAndSwap(peak, n) {
+			break
+		}
+	}
+	time.Sleep(20 * time.Millisecond)
+	c.inFlight.Add(-1)
+	return c.mockPDP.Evaluations(ctx, req)
+}
+
+// Candidate batches run in parallel, a few at a time, and the permitted rows
+// keep the candidates' order.
+func TestListFilter_EvaluationsRunInParallel(t *testing.T) {
+	candidates := make([]ResourceID, 0, 1000)
+	for i := range 1000 {
+		candidates = append(candidates, ResourceID{"team", fmt.Sprintf("a%04d", i)})
+	}
+	pdp := &concurrentPDP{mockPDP: newMockPDP(nil)}
+	p, err := New(Config{Client: pdp, Lister: &mockLister{ids: candidates}, ListMax: 1000})
+	require.NoError(t, err)
+
+	_, args, err := p.ListFilter(userCtx(alice()), listIn("team"))
+	require.NoError(t, err)
+
+	assert.Len(t, pdp.batches, 10)
+	assert.Greater(t, pdp.peak.Load(), int32(1), "batches must overlap")
+	assert.LessOrEqual(t, pdp.peak.Load(), int32(maxParallelBatches))
+	names := args[1].([]string)
+	require.Len(t, names, 1000)
+	assert.True(t, sort.StringsAreSorted(names))
 }
 
 func TestListFilter_Errors(t *testing.T) {

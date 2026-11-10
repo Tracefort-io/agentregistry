@@ -68,7 +68,8 @@ func TestValidate_Auth(t *testing.T) {
 		{"unknown mode", &Config{AuthMode: "optional"}, true},
 		{"required and complete", required(nil), false},
 		{"issuers from file", required(func(c *Config) { c.AuthIssuers, c.AuthIssuersFile = "", "/etc/issuers.json" }), false},
-		{"required without issuers", required(func(c *Config) { c.AuthIssuers = "" }), true},
+		// Issuers are checked at startup, where a provider from AppOptions can stand in for them.
+		{"required without issuers", required(func(c *Config) { c.AuthIssuers = "" }), false},
 		{"required without pdp", required(func(c *Config) { c.AuthzenURL = "" }), true},
 		{"negative clock skew", required(func(c *Config) { c.AuthClockSkew = -time.Second }), true},
 		{"zero pdp timeout", required(func(c *Config) { c.AuthzenTimeout = 0 }), true},

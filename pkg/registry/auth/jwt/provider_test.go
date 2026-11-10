@@ -451,8 +451,9 @@ func TestProviderPrincipal(t *testing.T) {
 			got := sess.Principal()
 			require.NotEmpty(t, got.Claims)
 			got.Claims = nil
+			require.Equal(t, tt.wantClient, got.IsClient)
+			got.IsClient = false
 			require.Equal(t, tt.want, got)
-			require.Equal(t, tt.wantClient, IsClientSession(sess))
 		})
 	}
 }

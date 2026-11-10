@@ -3,7 +3,9 @@ package router
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -49,21 +51,6 @@ func openPathSet(paths []string) map[string]bool {
 	return open
 }
 
-// authnHumaMiddleware authenticates every huma operation except the exact
-// open paths. Open paths are matched here rather than passed to
-// auth.WithSkipPaths, whose last-segment matching would also open e.g.
-// /v0/agents/health.
-func authnHumaMiddleware(provider auth.AuthnProvider, open map[string]bool, opts ...auth.MiddlewareOption) func(huma.Context, func(huma.Context)) {
-	authn := auth.AuthnMiddleware(provider, opts...)
-	return func(ctx huma.Context, next func(huma.Context)) {
-		if open[ctx.URL().Path] {
-			next(ctx)
-			return
-		}
-		authn(ctx, next)
-	}
-}
-
 // requestIDHeader correlates registry logs with PDP decision logs.
 const requestIDHeader = "X-Request-ID"
 
@@ -73,13 +60,17 @@ const maxRequestIDLength = 128
 
 // requestIDMiddleware puts the caller's X-Request-ID, or a generated one,
 // into the request context for AuthZEN calls and echoes it on the response.
+// It also gives the request its own AuthZEN decision memo, so a question
+// asked twice while serving it (such as the list check made by both the
+// handler and its list filter) reaches the PDP once.
 func requestIDMiddleware(ctx huma.Context, next func(huma.Context)) {
 	id := strings.TrimSpace(ctx.Header(requestIDHeader))
 	if id == "" || len(id) > maxRequestIDLength {
 		id = newRequestID()
 	}
 	ctx.SetHeader(requestIDHeader, id)
-	next(huma.WithContext(ctx, authzen.WithRequestID(ctx.Context(), id)))
+	reqCtx := authzen.WithDecisionMemo(authzen.WithRequestID(ctx.Context(), id))
+	next(huma.WithContext(ctx, reqCtx))
 }
 
 func newRequestID() string {
@@ -88,28 +79,9 @@ func newRequestID() string {
 	return hex.EncodeToString(b)
 }
 
-// requireAuthn guards plain HTTP handlers that bypass the huma middleware
-// chain (OpenAPI documents, docs, schemas, metrics).
-func requireAuthn(provider auth.AuthnProvider, open map[string]bool) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if open[r.URL.Path] {
-				next.ServeHTTP(w, r)
-				return
-			}
-			session, err := provider.Authenticate(r.Context(), r.Header.Get, r.URL.Query())
-			if err != nil {
-				logger.Warn("authentication failed", "path", r.URL.Path, "error", err)
-				w.Header().Set("WWW-Authenticate", "Bearer")
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-			if session != nil {
-				r = r.WithContext(auth.AuthSessionTo(r.Context(), session))
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
+// skipPathsOption opens the exact paths of an open path set.
+func skipPathsOption(open map[string]bool) auth.MiddlewareOption {
+	return auth.WithSkipPaths(slices.Sorted(maps.Keys(open))...)
 }
 
 // guardedMux wraps handlers registered while wrap is set. huma registers its

@@ -217,3 +217,55 @@ func TestAuthnMiddlewareWithoutPublicPaths(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.Code)
 	assert.False(t, capture.handled)
 }
+
+// nilSessionAuthn authenticates nothing but reports no error.
+type nilSessionAuthn struct{}
+
+func (nilSessionAuthn) Authenticate(context.Context, func(string) string, url.Values) (auth.Session, error) {
+	return nil, nil
+}
+
+func TestHTTPMiddleware(t *testing.T) {
+	var seen auth.Session
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen, _ = auth.AuthSessionFrom(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})
+
+	tests := []struct {
+		name          string
+		authn         auth.AuthnProvider
+		opts          []auth.MiddlewareOption
+		path, token   string
+		wantStatus    int
+		wantChallenge string
+		wantSession   bool
+	}{
+		{name: "valid token", authn: testAuthn{}, path: "/docs", token: "Bearer ok", wantStatus: 200, wantSession: true},
+		{name: "missing token", authn: testAuthn{}, path: "/docs", wantStatus: 401, wantChallenge: "Bearer"},
+		{name: "no session is unauthenticated", authn: nilSessionAuthn{}, path: "/docs", token: "Bearer ok", wantStatus: 401, wantChallenge: "Bearer"},
+		{name: "exact skip path", authn: testAuthn{}, opts: []auth.MiddlewareOption{auth.WithSkipPaths("/health")}, path: "/health", wantStatus: 200},
+		{name: "skip path matches exactly", authn: testAuthn{}, opts: []auth.MiddlewareOption{auth.WithSkipPaths("/health")}, path: "/x/health", wantStatus: 401, wantChallenge: "Bearer"},
+		{
+			name: "resource metadata challenge", authn: testAuthn{},
+			opts: []auth.MiddlewareOption{auth.WithResourceMetadata("https://registry.example/.well-known/oauth-protected-resource")},
+			path: "/mcp", wantStatus: 401,
+			wantChallenge: `Bearer resource_metadata="https://registry.example/.well-known/oauth-protected-resource"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			seen = nil
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.token != "" {
+				req.Header.Set("Authorization", tt.token)
+			}
+			rec := httptest.NewRecorder()
+			auth.HTTPMiddleware(tt.authn, tt.opts...)(ok).ServeHTTP(rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Equal(t, tt.wantChallenge, rec.Header().Get("WWW-Authenticate"))
+			assert.Equal(t, tt.wantSession, seen != nil)
+		})
+	}
+}

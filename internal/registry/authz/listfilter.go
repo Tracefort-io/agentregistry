@@ -7,12 +7,18 @@ import (
 	"slices"
 	"strings"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/authzen"
 	"github.com/agentregistry-dev/agentregistry/pkg/types"
 )
 
-// evaluationsChunk bounds one evaluations batch of list candidates.
-const evaluationsChunk = 100
+const (
+	// evaluationsChunk bounds one evaluations batch of list candidates.
+	evaluationsChunk = 100
+	// maxParallelBatches bounds the batches of one list in flight at once.
+	maxParallelBatches = 4
+)
 
 // ResourceID identifies one row by its store key.
 type ResourceID struct {
@@ -126,37 +132,60 @@ func (p *PEP) evaluateReadable(ctx context.Context, subject authzen.Subject, kin
 		return nil, unavailable(err)
 	}
 
-	permitted := make([]ResourceID, 0, len(candidates))
+	// Batches run in parallel, a few at a time; each fills its own slot so
+	// the permitted rows keep the candidates' order.
+	chunks := (len(candidates) + evaluationsChunk - 1) / evaluationsChunk
+	results := make([][]ResourceID, chunks)
 	reqCtx := requestContext(ctx)
-	for start := 0; start < len(candidates); start += evaluationsChunk {
-		chunk := candidates[start:min(start+evaluationsChunk, len(candidates))]
-		req := authzen.EvaluationsRequest{
-			Subject:     &subject,
-			Action:      &authzen.Action{Name: ActionRead},
-			Context:     reqCtx,
-			Options:     &authzen.EvaluationsOptions{EvaluationsSemantic: authzen.ExecuteAll},
-			Evaluations: make([]authzen.EvaluationItem, len(chunk)),
-		}
-		for i, id := range chunk {
-			res := objectResource(kind, id.Namespace, id.Name, "")
-			req.Evaluations[i] = authzen.EvaluationItem{Resource: &res}
-		}
-		resp, err := p.client.Evaluations(ctx, req)
-		if err == nil && len(resp.Evaluations) != len(chunk) {
-			err = fmt.Errorf("batch of %d returned %d decisions", len(chunk), len(resp.Evaluations))
-		}
-		if err != nil {
-			p.logError(ctx, subject, ActionRead, authzen.Resource{Type: typ}, err)
-			return nil, unavailable(err)
-		}
-		for i, d := range resp.Evaluations {
-			if d.Decision {
-				permitted = append(permitted, chunk[i])
-			}
-		}
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(maxParallelBatches)
+	for i := range chunks {
+		chunk := candidates[i*evaluationsChunk : min((i+1)*evaluationsChunk, len(candidates))]
+		g.Go(func() error {
+			permitted, err := p.readableChunk(gctx, subject, kind, chunk, reqCtx)
+			results[i] = permitted
+			return err
+		})
+	}
+	if err := g.Wait(); err != nil {
+		p.logError(ctx, subject, ActionRead, authzen.Resource{Type: typ}, err)
+		return nil, unavailable(err)
+	}
+	permitted := make([]ResourceID, 0, len(candidates))
+	for _, r := range results {
+		permitted = append(permitted, r...)
 	}
 	p.log.DebugContext(ctx, "authz list via evaluations", "subject_id", subject.ID, "resource_type", typ,
 		"candidates", len(candidates), "permitted", len(permitted), "request_id", authzen.RequestIDFrom(ctx))
+	return permitted, nil
+}
+
+// readableChunk checks read on one batch of candidates with execute_all.
+func (p *PEP) readableChunk(ctx context.Context, subject authzen.Subject, kind string, chunk []ResourceID, reqCtx authzen.Context) ([]ResourceID, error) {
+	req := authzen.EvaluationsRequest{
+		Subject:     &subject,
+		Action:      &authzen.Action{Name: ActionRead},
+		Context:     reqCtx,
+		Options:     &authzen.EvaluationsOptions{EvaluationsSemantic: authzen.ExecuteAll},
+		Evaluations: make([]authzen.EvaluationItem, len(chunk)),
+	}
+	for i, id := range chunk {
+		res := objectResource(kind, id.Namespace, id.Name, "")
+		req.Evaluations[i] = authzen.EvaluationItem{Resource: &res}
+	}
+	resp, err := p.client.Evaluations(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.Evaluations) != len(chunk) {
+		return nil, fmt.Errorf("batch of %d returned %d decisions", len(chunk), len(resp.Evaluations))
+	}
+	var permitted []ResourceID
+	for i, d := range resp.Evaluations {
+		if d.Decision {
+			permitted = append(permitted, chunk[i])
+		}
+	}
 	return permitted, nil
 }
 

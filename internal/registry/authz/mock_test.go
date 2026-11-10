@@ -20,10 +20,14 @@ type mockPDP struct {
 	search    bool
 	searchErr error
 	results   []authzen.Resource
+	// resultsErr fails SearchResources only.
+	resultsErr error
 
 	evals    []authzen.EvaluationRequest
 	batches  []authzen.EvaluationsRequest
 	searches []authzen.ResourceSearchRequest
+	// searchMax is the max passed to the last SearchResources call.
+	searchMax int
 }
 
 func newMockPDP(decide func(authzen.EvaluationRequest) bool) *mockPDP {
@@ -74,12 +78,16 @@ func (m *mockPDP) SupportsResourceSearch(context.Context) (bool, error) {
 	return m.search, m.searchErr
 }
 
-func (m *mockPDP) SearchResources(_ context.Context, req authzen.ResourceSearchRequest, _ int) ([]authzen.Resource, error) {
+func (m *mockPDP) SearchResources(_ context.Context, req authzen.ResourceSearchRequest, max int) ([]authzen.Resource, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.searches = append(m.searches, req)
+	m.searchMax = max
 	if m.err != nil {
 		return nil, m.err
+	}
+	if m.resultsErr != nil {
+		return nil, m.resultsErr
 	}
 	return m.results, nil
 }

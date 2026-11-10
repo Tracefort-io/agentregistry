@@ -41,6 +41,10 @@ func buildAuth(ctx context.Context, cfg *config.Config, options types.AppOptions
 	}
 
 	if w.authn == nil {
+		if cfg.AuthIssuers == "" && cfg.AuthIssuersFile == "" {
+			return authWiring{}, fmt.Errorf("auth mode %q requires AUTH_ISSUERS or AUTH_ISSUERS_FILE, or an AuthnProvider in AppOptions",
+				config.AuthModeRequired)
+		}
 		issuers, err := jwtauthn.LoadIssuers(cfg.AuthIssuers, cfg.AuthIssuersFile)
 		if err != nil {
 			return authWiring{}, fmt.Errorf("load auth issuers: %w", err)

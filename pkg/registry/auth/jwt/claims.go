@@ -14,7 +14,6 @@ const maxActorDepth = 16
 // Session is the session of a caller authenticated with a JWT.
 type Session struct {
 	principal auth.Principal
-	client    bool
 }
 
 var _ auth.Session = (*Session)(nil)
@@ -22,26 +21,6 @@ var _ auth.Session = (*Session)(nil)
 // Principal returns the authenticated caller.
 func (s *Session) Principal() auth.Principal {
 	return s.principal
-}
-
-// IsClient reports whether the token was issued to a client acting for
-// itself (client credentials) rather than to a user.
-func (s *Session) IsClient() bool {
-	return s.client
-}
-
-// IsClientSession reports whether s is a JWT session for a client acting for
-// itself. It is false for any other session type.
-func IsClientSession(s auth.Session) bool {
-	js, ok := s.(*Session)
-	return ok && js.IsClient()
-}
-
-// IsClientToken reports whether p looks like a client-credentials principal:
-// its subject equals its client ID. It cannot see an issuer's
-// clientSubjectClaim; prefer IsClientSession when the session is at hand.
-func IsClientToken(p auth.Principal) bool {
-	return p.ClientID != "" && p.Subject == p.ClientID
 }
 
 // newSession builds the session from verified claims.
@@ -64,11 +43,13 @@ func newSession(cfg *IssuerConfig, claims map[string]any) (*Session, error) {
 		Actor:    actors,
 		Claims:   claims,
 	}
-	client := p.ClientID != "" && p.Subject == p.ClientID
+	// A client acting for itself: the issuer's clientSubjectClaim decides when
+	// configured, otherwise a subject equal to the client ID.
+	p.IsClient = p.ClientID != "" && p.Subject == p.ClientID
 	if cfg.ClientSubjectClaim != "" {
-		client = truthy(lookupPath(claims, cfg.ClientSubjectClaim))
+		p.IsClient = truthy(lookupPath(claims, cfg.ClientSubjectClaim))
 	}
-	return &Session{principal: p, client: client}, nil
+	return &Session{principal: p}, nil
 }
 
 // parseActors flattens a nested RFC 8693 "act" claim, outermost (current)

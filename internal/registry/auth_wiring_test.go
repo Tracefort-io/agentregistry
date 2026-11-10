@@ -74,6 +74,18 @@ func TestBuildAuthRequiredKeepsProvidedProviders(t *testing.T) {
 	require.NotNil(t, w.pdp, "the PDP still backs the per-kind hooks")
 }
 
+func TestBuildAuthRequiredNeedsIssuersOrProvider(t *testing.T) {
+	cfg := requiredAuthConfig()
+	cfg.AuthIssuers = ""
+
+	_, err := buildAuth(context.Background(), cfg, types.AppOptions{})
+	require.ErrorContains(t, err, "AUTH_ISSUERS")
+
+	w, err := buildAuth(context.Background(), cfg, types.AppOptions{AuthnProvider: stubAuthn{}})
+	require.NoError(t, err, "a provider from AppOptions replaces the issuers")
+	assert.Equal(t, stubAuthn{}, w.authn)
+}
+
 func TestBuildAuthRequiredRejectsBadIssuers(t *testing.T) {
 	cfg := requiredAuthConfig()
 	cfg.AuthIssuers = `[{"issuer":"https://idp.example.com","audiences":["agentregistry"],"algorithms":["HS256"]}]`

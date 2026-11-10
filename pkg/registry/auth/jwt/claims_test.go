@@ -100,13 +100,6 @@ func TestTruthy(t *testing.T) {
 	}
 }
 
-func TestIsClientToken(t *testing.T) {
-	require.True(t, IsClientToken(auth.Principal{Subject: "c", ClientID: "c"}))
-	require.False(t, IsClientToken(auth.Principal{Subject: "u", ClientID: "c"}))
-	require.False(t, IsClientToken(auth.Principal{Subject: "u"}))
-	require.False(t, IsClientSession(&auth.PublicSession{}))
-}
-
 func TestBearerTokenNeverEchoed(t *testing.T) {
 	secret := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln"
 	for _, header := range []string{"Basic " + secret, "Bearer " + secret + " extra"} {

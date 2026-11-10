@@ -28,7 +28,7 @@ Built only from verified token claims.
 }
 ```
 
-- `type` is `"client"` instead of `"user"` when the token was issued to a client acting for itself (client credentials: `sub` equals the client ID, or the issuer's configured `clientSubjectClaim` says so).
+- `type` is `"client"` instead of `"user"` when the token was issued to a client acting for itself. The issuer's `clientSubjectClaim` decides when it is configured; otherwise a token whose `sub` equals its client ID is a client token.
 - `roles` and `groups` come from the claim paths configured per issuer (Keycloak `realm_access.roles` and `groups`; Entra `roles` and `groups`).
 - `act` is present only for delegated tokens (RFC 8693).
 - Anonymous callers on public paths are sent as `{"type": "anonymous", "id": "anonymous"}`.
@@ -67,19 +67,24 @@ Built only from verified token claims.
 
 ## Deployments
 
-A Deployment is authorized as its own resource (`type: deployment`) for `read`, `list` and `delete`. On `apply`, the registry additionally sends, in one batch with `deny_on_first_deny`:
+A Deployment is authorized as its own resource (`type: deployment`) for `read`, `list` and `delete`. On `apply`, the registry sends one batch with `deny_on_first_deny`:
 
 - `deploy` on the target (`agent` or `mcpserver`, from `spec.targetRef`),
-- `read` on the runtime (`runtime`, from `spec.runtimeRef`).
+- `read` on the runtime (`runtime`, from `spec.runtimeRef`),
+- `apply` on the Deployment itself,
+- `read` on the Model it uses (`model`, from `spec.modelRef`, or the namespace's `default` Model for a harness Agent that names none),
+- `read` on each Deployment it binds to (`deployment`, from `spec.deploymentRefs`).
 
-All must permit.
+All must permit, so a Deployment cannot run with, or bind to, a resource its author may not read. A reference without a namespace is in the Deployment's namespace.
 
 ## Lists
 
 1. `list` on the kind (`id` as above). A denial is `403`.
 2. Rows the caller may `read` are selected:
-   - if the PDP advertises Resource Search, with one `search/resource` call for `action: read`, `resource: {"type": "<kind>"}`;
-   - otherwise with `evaluations` batches over the candidate rows, at most `AUTHZEN_LIST_MAX` rows. More candidates than that fails the request with `503`; enable Resource Search on the PDP for large catalogs.
+   - if the PDP advertises Resource Search, with `search/resource` calls for `action: read`, `resource: {"type": "<kind>"}`, following every page;
+   - otherwise with `evaluations` batches of 100 over the candidate rows, up to 4 batches at a time.
+
+   Either way at most `AUTHZEN_LIST_MAX` rows are authorized. More results or candidates than that fails the request with `503`.
 3. The permitted `<namespace>/<name>` ids become a parameterized SQL condition on the list query, so rows the caller may not read are never returned.
 
 ## Responses
@@ -95,4 +100,6 @@ Every denial error matches `errors.Is(err, auth.ErrForbidden)`; an unauthenticat
 
 ## Caching
 
-Only permits are cached, per (subject, action, resource), for `AUTHZEN_CACHE_TTL` (default 5s). Denials and errors are never cached.
+Only permits are cached across requests, per (subject, action, resource), for `AUTHZEN_CACHE_TTL` (default 5s). Denials and errors are never cached.
+
+Within one incoming request, an identical question is asked once: a decision, permit or denial, is reused for the rest of that request only. Failed evaluations are not reused.

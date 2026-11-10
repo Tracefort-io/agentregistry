@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -62,6 +63,10 @@ type Principal struct {
 	ClientID string
 	// Username is a display name for logs and the UI (for example "preferred_username").
 	Username string
+	// IsClient is true when the token was issued to a client acting for itself
+	// (client credentials) rather than to a user. The AuthnProvider decides,
+	// using the issuer's configuration.
+	IsClient bool
 	// Roles and Groups are read from the claims configured for the issuer.
 	Roles  []string
 	Groups []string
@@ -88,6 +93,12 @@ type Session interface {
 	Principal() Principal
 }
 
+// AuthnProvider authenticates a request and returns its Session.
+//
+// With AGENT_REGISTRY_AUTH_MODE=required, the AuthZEN PEP identifies callers
+// by Principal.Subject and Principal.Issuer: a provider must set both (and
+// IsClient, Roles and Groups as appropriate), or every request it
+// authenticates is refused with 401.
 type AuthnProvider interface {
 	Authenticate(ctx context.Context, reqHeaders func(name string) string, query url.Values) (Session, error)
 }
@@ -109,11 +120,29 @@ func AuthSessionTo(ctx context.Context, session Session) context.Context {
 	return context.WithValue(ctx, sessionKey, session)
 }
 
-// todo: the middleware config is redefined here and router. should be consolidated.
 // Middleware configuration options
 type middlewareConfig struct {
 	skipPaths      map[string]bool // paths that should skip authentication and don't require any authorization (e.g. no need to fetch registry content)
 	publicPrefixes []string        // path prefixes for paths that skip authentication, but require access to content (e.g. MCP /v0.1 requires server public listing)
+	// resourceMetadata is the RFC 9728 protected resource metadata URL sent in
+	// the 401 challenge, so OAuth clients can discover how to authenticate.
+	resourceMetadata string
+}
+
+func newMiddlewareConfig(options []MiddlewareOption) *middlewareConfig {
+	config := &middlewareConfig{skipPaths: make(map[string]bool)}
+	for _, option := range options {
+		option(config)
+	}
+	return config
+}
+
+// challenge is the WWW-Authenticate value of a 401.
+func (c *middlewareConfig) challenge() string {
+	if c.resourceMetadata != "" {
+		return fmt.Sprintf("Bearer resource_metadata=%q", c.resourceMetadata)
+	}
+	return "Bearer"
 }
 
 type MiddlewareOption func(*middlewareConfig)
@@ -139,13 +168,16 @@ func WithPublicPaths(prefixes ...string) MiddlewareOption {
 	}
 }
 
+// WithResourceMetadata adds the RFC 9728 protected resource metadata URL to
+// the 401 challenge.
+func WithResourceMetadata(url string) MiddlewareOption {
+	return func(c *middlewareConfig) {
+		c.resourceMetadata = url
+	}
+}
+
 func AuthnMiddleware(authn AuthnProvider, options ...MiddlewareOption) func(ctx huma.Context, next func(huma.Context)) {
-	config := &middlewareConfig{
-		skipPaths: make(map[string]bool),
-	}
-	for _, option := range options {
-		option(config)
-	}
+	config := newMiddlewareConfig(options)
 	return func(ctx huma.Context, next func(huma.Context)) {
 		path := ctx.URL().Path
 
@@ -170,7 +202,7 @@ func AuthnMiddleware(authn AuthnProvider, options ...MiddlewareOption) func(ctx 
 		session, err := authn.Authenticate(ctx.Context(), ctx.Header, url.Query())
 		if err != nil {
 			slog.Warn("authentication failed", "path", path, "error", err)
-			ctx.SetHeader("WWW-Authenticate", "Bearer")
+			ctx.SetHeader("WWW-Authenticate", config.challenge())
 			ctx.SetStatus(http.StatusUnauthorized)
 			_, _ = ctx.BodyWriter().Write([]byte("Unauthorized"))
 			return
@@ -179,5 +211,31 @@ func AuthnMiddleware(authn AuthnProvider, options ...MiddlewareOption) func(ctx 
 			ctx = huma.WithContext(ctx, AuthSessionTo(ctx.Context(), session))
 		}
 		next(ctx)
+	}
+}
+
+// HTTPMiddleware authenticates plain net/http handlers that are not huma
+// operations, such as the OpenAPI documents, /metrics and the MCP endpoint.
+// Exact skip paths pass through; every other request needs a session from
+// authn, or gets 401 with a Bearer challenge. Public paths are not supported.
+func HTTPMiddleware(authn AuthnProvider, options ...MiddlewareOption) func(http.Handler) http.Handler {
+	config := newMiddlewareConfig(options)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if config.skipPaths[r.URL.Path] {
+				next.ServeHTTP(w, r)
+				return
+			}
+			session, err := authn.Authenticate(r.Context(), r.Header.Get, r.URL.Query())
+			if err != nil || session == nil {
+				if err != nil {
+					slog.Warn("authentication failed", "path", r.URL.Path, "error", err)
+				}
+				w.Header().Set("WWW-Authenticate", config.challenge())
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(AuthSessionTo(r.Context(), session)))
+		})
 	}
 }

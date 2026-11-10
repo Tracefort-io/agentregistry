@@ -284,17 +284,70 @@ func TestEvaluate_ErrorsNotCached(t *testing.T) {
 	got, err := c.Evaluate(context.Background(), sampleReq("default/a"))
 	require.NoError(t, err)
 	assert.True(t, got.Decision)
-	// The failure dropped the metadata, so the PDP was re-discovered.
+	// A 5xx says nothing about the endpoints, so they are kept.
+	assert.Equal(t, int32(1), f.discoverCalls.Load())
+}
+
+func TestEvaluate_NotFoundRediscovers(t *testing.T) {
+	f := newFakePDP(t)
+	f.evalStatus = http.StatusNotFound
+	c := f.client(t, nil)
+	_, err := c.Evaluate(context.Background(), sampleReq("default/a"))
+	require.ErrorIs(t, err, ErrUnavailable)
+	f.evalStatus = 0
+	_, err = c.Evaluate(context.Background(), sampleReq("default/a"))
+	require.NoError(t, err)
+	// A 404 means the endpoint moved, so the PDP was re-discovered.
 	assert.Equal(t, int32(2), f.discoverCalls.Load())
+}
+
+// While discovery is slow, concurrent callers share one discovery call and
+// each gives up when its own context ends, instead of queueing behind a lock.
+func TestMetadata_ConcurrentCallersShareDiscovery(t *testing.T) {
+	f := newFakePDP(t)
+	f.delay = 400 * time.Millisecond
+	c := f.client(t, func(cfg *Config) { cfg.Timeout = 2 * time.Second })
+
+	const callers = 20
+	start := time.Now()
+	var wg sync.WaitGroup
+	errs := make(chan error, callers)
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			defer cancel()
+			_, err := c.Evaluate(ctx, sampleReq("default/a"))
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	assert.Less(t, time.Since(start), 300*time.Millisecond, "callers must not wait for each other")
+	for err := range errs {
+		require.ErrorIs(t, err, ErrUnavailable)
+	}
+	assert.Eventually(t, func() bool { return f.discoverCalls.Load() == 1 }, time.Second, 10*time.Millisecond)
+	time.Sleep(f.delay) // let the shared discovery finish
+	assert.Equal(t, int32(1), f.discoverCalls.Load(), "one discovery for all callers")
 }
 
 func TestMetadata_CachedAndRetriedAfterFailure(t *testing.T) {
 	f := newFakePDP(t)
 	f.pdpID = "https://wrong.example"
-	c := f.client(t, nil)
+	now := time.Now()
+	c := f.client(t, func(cfg *Config) { cfg.Now = func() time.Time { return now } })
 	_, err := c.Metadata(context.Background())
 	require.ErrorIs(t, err, ErrDiscovery)
 	f.pdpID = ""
+	// A failed discovery is remembered briefly, so a down PDP is not
+	// called again by every request.
+	_, err = c.Metadata(context.Background())
+	require.ErrorIs(t, err, ErrDiscovery)
+	assert.Equal(t, int32(1), f.discoverCalls.Load())
+	now = now.Add(discoveryRetryAfter)
 	meta, err := c.Metadata(context.Background())
 	require.NoError(t, err)
 	_, err = c.Metadata(context.Background())
@@ -456,4 +509,49 @@ func TestNew_InvalidBaseURL(t *testing.T) {
 		_, err := New(Config{BaseURL: u})
 		assert.Error(t, err, u)
 	}
+}
+
+// Within one request, identical decisions are asked once, denials included,
+// whatever the cache TTL. Without a memo every call reaches the PDP.
+func TestEvaluate_DecisionMemo(t *testing.T) {
+	f := newFakePDP(t)
+	f.decide = func(r EvaluationRequest) bool { return r.Resource.ID != "default/denied" }
+	c := f.client(t, nil) // CacheTTL 0: no permit cache
+
+	ctx := WithDecisionMemo(WithRequestID(context.Background(), "req-1"))
+	for range 3 {
+		got, err := c.Evaluate(ctx, sampleReq("default/a"))
+		require.NoError(t, err)
+		assert.True(t, got.Decision)
+		got, err = c.Evaluate(ctx, sampleReq("default/denied"))
+		require.NoError(t, err)
+		assert.False(t, got.Decision)
+	}
+	assert.Equal(t, int32(2), f.evalCalls.Load(), "one call per distinct request")
+
+	// A new request gets a new memo.
+	_, err := c.Evaluate(WithDecisionMemo(context.Background()), sampleReq("default/a"))
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), f.evalCalls.Load())
+
+	// Without a memo, nothing is remembered.
+	for range 2 {
+		_, err := c.Evaluate(context.Background(), sampleReq("default/a"))
+		require.NoError(t, err)
+	}
+	assert.Equal(t, int32(5), f.evalCalls.Load())
+}
+
+func TestEvaluate_DecisionMemoSkipsErrors(t *testing.T) {
+	f := newFakePDP(t)
+	f.evalStatus = http.StatusInternalServerError
+	c := f.client(t, nil)
+	ctx := WithDecisionMemo(context.Background())
+
+	_, err := c.Evaluate(ctx, sampleReq("default/a"))
+	require.Error(t, err)
+	f.evalStatus = 0
+	got, err := c.Evaluate(ctx, sampleReq("default/a"))
+	require.NoError(t, err, "a failure is not remembered")
+	assert.True(t, got.Decision)
 }

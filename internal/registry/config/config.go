@@ -81,9 +81,10 @@ type Config struct {
 	// Authentication
 	//
 	// AuthMode is "disabled" (default; no authentication, the OSS behavior) or
-	// "required". With "required" the server refuses to start unless at least
-	// one issuer and an AuthZEN PDP are configured, and every request except
-	// AuthOpenPaths must carry a valid token.
+	// "required". With "required" the server refuses to start unless an
+	// AuthZEN PDP and at least one issuer (or an AuthnProvider in AppOptions)
+	// are configured, and every request except AuthOpenPaths must carry a
+	// valid token.
 	AuthMode string `env:"AUTH_MODE" envDefault:"disabled"`
 	// AuthIssuers is a JSON array of trusted token issuers (see
 	// pkg/registry/auth/jwt.IssuerConfig). AuthIssuersFile reads the same

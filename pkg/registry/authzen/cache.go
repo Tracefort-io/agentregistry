@@ -1,6 +1,7 @@
 package authzen
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"sync"
@@ -37,17 +38,25 @@ func newPermitCache(ttl time.Duration, maxEntries int, ignoreContextKeys []strin
 	}
 }
 
-// key canonically encodes a request. encoding/json writes struct fields in
-// declaration order and map keys sorted, so equal requests encode equally.
-// Context keys that vary per request (such as request_id) are dropped.
+// key canonically encodes a request, without the context keys that vary
+// per request (such as request_id).
 func (c *permitCache) key(req EvaluationRequest) ([sha256.Size]byte, bool) {
-	ctx := make(Context, len(req.Context))
-	for k, v := range req.Context {
-		if _, skip := c.ignoreKeys[k]; !skip {
-			ctx[k] = v
+	return requestKey(req, c.ignoreKeys)
+}
+
+// requestKey canonically encodes a request. encoding/json writes struct
+// fields in declaration order and map keys sorted, so equal requests encode
+// equally. Context keys in ignore are dropped.
+func requestKey(req EvaluationRequest, ignore map[string]struct{}) ([sha256.Size]byte, bool) {
+	if len(ignore) > 0 {
+		ctx := make(Context, len(req.Context))
+		for k, v := range req.Context {
+			if _, skip := ignore[k]; !skip {
+				ctx[k] = v
+			}
 		}
+		req.Context = ctx
 	}
-	req.Context = ctx
 	raw, err := json.Marshal(req)
 	if err != nil {
 		return [sha256.Size]byte{}, false
@@ -99,4 +108,51 @@ func (c *permitCache) storePermit(req EvaluationRequest) {
 		}
 	}
 	c.entries[k] = now.Add(c.ttl)
+}
+
+// decisionMemo remembers every decision made for one incoming request, so a
+// request that asks the same question twice reaches the PDP once.
+type decisionMemo struct {
+	mu        sync.Mutex
+	decisions map[[sha256.Size]byte]bool
+}
+
+type decisionMemoKey struct{}
+
+// WithDecisionMemo returns a context in which Evaluate answers identical
+// requests once. It remembers denials as well as permits, so create one per
+// incoming request and never let it outlive that request. Failed
+// evaluations are not remembered.
+func WithDecisionMemo(ctx context.Context) context.Context {
+	return context.WithValue(ctx, decisionMemoKey{}, &decisionMemo{decisions: map[[sha256.Size]byte]bool{}})
+}
+
+func memoFrom(ctx context.Context) *decisionMemo {
+	m, _ := ctx.Value(decisionMemoKey{}).(*decisionMemo)
+	return m
+}
+
+func (m *decisionMemo) lookup(req EvaluationRequest) (decision, ok bool) {
+	if m == nil {
+		return false, false
+	}
+	k, ok := requestKey(req, nil)
+	if !ok {
+		return false, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	decision, ok = m.decisions[k]
+	return decision, ok
+}
+
+func (m *decisionMemo) store(req EvaluationRequest, decision bool) {
+	if m == nil {
+		return
+	}
+	if k, ok := requestKey(req, nil); ok {
+		m.mu.Lock()
+		m.decisions[k] = decision
+		m.mu.Unlock()
+	}
 }

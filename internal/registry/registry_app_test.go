@@ -433,13 +433,14 @@ func TestMCPAuthnMiddleware(t *testing.T) {
 		assert.Equal(t, `Bearer resource_metadata="`+metaURL+`"`, rec.Header().Get("WWW-Authenticate"))
 	})
 
-	t.Run("401 omits the MCP server challenge when no metadata url is set", func(t *testing.T) {
+	t.Run("401 omits the resource metadata when no metadata url is set", func(t *testing.T) {
 		var ran, sawSession bool
 		h := mcpAuthnMiddleware(fakeAuthnProvider{err: errors.New("no")}, "")(newNext(&ran, &sawSession))
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", nil))
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
-		assert.Empty(t, rec.Header().Get("WWW-Authenticate"))
+		// RFC 7235 requires a challenge on 401; it just names no metadata.
+		assert.Equal(t, "Bearer", rec.Header().Get("WWW-Authenticate"))
 	})
 }
 

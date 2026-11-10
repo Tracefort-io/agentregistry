@@ -165,17 +165,13 @@ func TestSubjectFor(t *testing.T) {
 			},
 		},
 		{
-			name: "client credentials: sub equals client id", wantType: "client",
-			p: auth.Principal{Subject: "svc", Issuer: "https://idp", ClientID: "svc"},
+			name: "client credentials", wantType: "client",
+			p: auth.Principal{Subject: "svc", Issuer: "https://idp", ClientID: "svc", IsClient: true},
 			check: func(t *testing.T, s authzen.Subject) {
 				assert.Equal(t, []string{}, s.Properties["roles"], "roles always present")
 				assert.Equal(t, []string{}, s.Properties["groups"])
 				assert.NotContains(t, s.Properties, "username")
 			},
-		},
-		{
-			name: "client credentials: client_id claim without username", wantType: "client",
-			p: auth.Principal{Subject: "uuid-1", Issuer: "https://idp", ClientID: "svc", Claims: map[string]any{"client_id": "svc"}},
 		},
 		{
 			name: "user with client_id claim and username", wantType: "user",
@@ -203,11 +199,32 @@ func TestSubjectFor(t *testing.T) {
 	}
 }
 
-func TestConfig_IsClientOverride(t *testing.T) {
-	pdp := newMockPDP(nil)
-	p := newPEP(t, pdp, func(c *Config) { c.IsClient = func(auth.Principal) bool { return true } })
-	require.NoError(t, p.Authorize(userCtx(alice()), types.AuthorizeInput{Verb: "get", Kind: v1alpha1.KindAgent, Namespace: "d", Name: "a"}))
-	assert.Equal(t, "client", pdp.evals[0].Subject.Type)
+// The subject type comes from Principal.IsClient, which the AuthnProvider
+// sets from the issuer's configuration; the PEP does not guess from claims.
+func TestSubjectTypeFollowsPrincipal(t *testing.T) {
+	// A user token from an IdP that always emits client_id and has no
+	// preferred_username is still a user.
+	user := alice()
+	user.Username = ""
+	user.Claims = map[string]any{"client_id": "registry-ui", "email": "alice@example.com"}
+	client := alice()
+	client.IsClient = true
+
+	for _, tt := range []struct {
+		name string
+		p    auth.Principal
+		want string
+	}{
+		{"user with client_id claim", user, "user"},
+		{"client", client, "client"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pdp := newMockPDP(nil)
+			p := newPEP(t, pdp, nil)
+			require.NoError(t, p.Authorize(userCtx(tt.p), types.AuthorizeInput{Verb: "get", Kind: v1alpha1.KindAgent, Namespace: "d", Name: "a"}))
+			assert.Equal(t, tt.want, pdp.evals[0].Subject.Type)
+		})
+	}
 }
 
 func deployment(target, runtime v1alpha1.ResourceRef) *v1alpha1.Deployment {
@@ -277,6 +294,82 @@ func TestAuthorize_DeploymentApply(t *testing.T) {
 			}
 			assert.Equal(t, tt.wantStatus, StatusOf(err))
 			assert.ErrorIs(t, err, auth.ErrForbidden)
+		})
+	}
+}
+
+// Every resource a Deployment binds to must be readable by the caller,
+// otherwise a Deployment in one namespace could run with another namespace's
+// Model or bind to its Deployments.
+func TestAuthorize_DeploymentApplyChecksReferences(t *testing.T) {
+	agentRef := v1alpha1.ResourceRef{Kind: v1alpha1.KindAgent, Name: "bot"}
+	runtimeRef := v1alpha1.ResourceRef{Kind: v1alpha1.KindRuntime, Name: "k8s"}
+	withRefs := func(mutate func(*v1alpha1.DeploymentSpec)) *v1alpha1.Deployment {
+		d := deployment(agentRef, runtimeRef)
+		mutate(&d.Spec)
+		return d
+	}
+	type check struct{ action, typ, id, tag string }
+	tests := []struct {
+		name  string
+		obj   *v1alpha1.Deployment
+		extra []check
+	}{
+		{
+			name: "explicit model in another namespace",
+			obj: withRefs(func(s *v1alpha1.DeploymentSpec) {
+				s.ModelRef = &v1alpha1.ModelRef{Namespace: "team-b", Name: "prod-gpt", Tag: "v2"}
+			}),
+			extra: []check{{"read", "model", "team-b/prod-gpt", "v2"}},
+		},
+		{
+			name:  "model namespace defaults to the deployment's",
+			obj:   withRefs(func(s *v1alpha1.DeploymentSpec) { s.ModelRef = &v1alpha1.ModelRef{Name: "gpt"} }),
+			extra: []check{{"read", "model", "team/gpt", ""}},
+		},
+		{
+			name:  "implicit default model of a harness agent",
+			obj:   withRefs(func(s *v1alpha1.DeploymentSpec) { s.Harness = &v1alpha1.DeploymentHarness{Type: "claude-code"} }),
+			extra: []check{{"read", "model", "team/default", ""}},
+		},
+		{
+			name: "bound deployments",
+			obj: withRefs(func(s *v1alpha1.DeploymentSpec) {
+				s.DeploymentRefs = []v1alpha1.DeploymentRef{{Namespace: "team-b", Name: "mcp"}, {Name: "local"}}
+			}),
+			extra: []check{{"read", "deployment", "team-b/mcp", ""}, {"read", "deployment", "team/local", ""}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pdp := newMockPDP(nil)
+			p := newPEP(t, pdp, nil)
+			require.NoError(t, p.Authorize(userCtx(alice()), types.AuthorizeInput{
+				Verb: "apply", Kind: v1alpha1.KindDeployment, Namespace: "team", Name: "dep", Object: tt.obj,
+			}))
+			require.Len(t, pdp.batches, 1)
+			items := pdp.batches[0].Evaluations
+			require.Len(t, items, 3+len(tt.extra), "target, runtime and deployment, then each reference")
+			for i, want := range tt.extra {
+				got := items[3+i]
+				assert.Equal(t, want.action, got.Action.Name)
+				assert.Equal(t, want.typ, got.Resource.Type)
+				assert.Equal(t, want.id, got.Resource.ID)
+				if want.tag == "" {
+					assert.NotContains(t, got.Resource.Properties, "tag")
+				} else {
+					assert.Equal(t, want.tag, got.Resource.Properties["tag"])
+				}
+			}
+
+			// A denied reference denies the whole Deployment.
+			denied := tt.extra[len(tt.extra)-1].id
+			pdp = newMockPDP(func(r authzen.EvaluationRequest) bool { return r.Resource.ID != denied })
+			p = newPEP(t, pdp, nil)
+			err := p.Authorize(userCtx(alice()), types.AuthorizeInput{
+				Verb: "apply", Kind: v1alpha1.KindDeployment, Namespace: "team", Name: "dep", Object: tt.obj,
+			})
+			assert.Equal(t, 403, StatusOf(err))
 		})
 	}
 }

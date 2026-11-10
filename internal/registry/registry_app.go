@@ -41,6 +41,7 @@ import (
 	"github.com/agentregistry-dev/agentregistry/pkg/gitutil"
 	"github.com/agentregistry-dev/agentregistry/pkg/logging"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/auth"
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/authzen"
 	pkgdb "github.com/agentregistry-dev/agentregistry/pkg/registry/database"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/resource"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/v1alpha1store"
@@ -871,21 +872,19 @@ func buildMCPMux(handler http.Handler, resourceMetadata *oauthex.ProtectedResour
 // session so the tools' authz hooks run against the caller; missing or invalid
 // credentials get 401. When resourceMetadataURL is set, the 401 also carries the
 // RFC 9728 WWW-Authenticate challenge for client discovery. Installed only when
-// an AuthnProvider is configured.
+// an AuthnProvider is configured. Each request also gets its own AuthZEN
+// decision memo, so a tool that asks the same question twice reaches the PDP
+// once.
 func mcpAuthnMiddleware(authn auth.AuthnProvider, resourceMetadataURL string) func(http.Handler) http.Handler {
+	var opts []auth.MiddlewareOption
+	if resourceMetadataURL != "" {
+		opts = append(opts, auth.WithResourceMetadata(resourceMetadataURL))
+	}
+	authenticate := auth.HTTPMiddleware(authn, opts...)
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-			session, err := authn.Authenticate(ctx, r.Header.Get, r.URL.Query())
-			if err == nil && session != nil {
-				next.ServeHTTP(w, r.WithContext(auth.AuthSessionTo(ctx, session)))
-				return
-			}
-			if resourceMetadataURL != "" {
-				w.Header().Set("WWW-Authenticate", fmt.Sprintf("Bearer resource_metadata=%q", resourceMetadataURL))
-			}
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		})
+		return authenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(authzen.WithDecisionMemo(r.Context())))
+		}))
 	}
 }
 

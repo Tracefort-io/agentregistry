@@ -231,3 +231,28 @@ func TestNewHumaAPIRequestID(t *testing.T) {
 		require.Len(t, recorder.Header().Get("X-Request-ID"), 32)
 	})
 }
+
+// With auth required, /logging needs a token even from localhost: behind a
+// same-pod proxy every request arrives from 127.0.0.1.
+func TestNewHumaAPILoggingRequiresAuthn(t *testing.T) {
+	mux := newTestAPI(t, &config.Config{AuthMode: config.AuthModeRequired, AuthOpenPaths: []string{"/health"}}, tokenAuthnProvider{})
+	for _, tt := range []struct {
+		name       string
+		token      bool
+		wantStatus int
+	}{
+		{"without token", false, http.StatusUnauthorized},
+		{"with token", true, http.StatusOK},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/logging", nil)
+			req.RemoteAddr = "127.0.0.1:41000"
+			if tt.token {
+				req.Header.Set("Authorization", "Bearer ok")
+			}
+			recorder := httptest.NewRecorder()
+			mux.ServeHTTP(recorder, req)
+			require.Equal(t, tt.wantStatus, recorder.Code)
+		})
+	}
+}

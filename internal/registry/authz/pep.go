@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 
 	"github.com/agentregistry-dev/agentregistry/pkg/logging"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/auth"
@@ -39,12 +40,11 @@ type Config struct {
 	Lister CandidateLister
 	// ListMax caps the candidate rows authorized per list (default 1000).
 	ListMax int
-	// SearchMax caps Resource Search results per list; 0 is unbounded.
+	// SearchMax caps Resource Search results per list (default ListMax).
+	// Results beyond it fail the list with 503.
 	SearchMax int
 	// ExtraKinds adds extension kinds to Authorizers and ListFilters.
 	ExtraKinds []string
-	// IsClient decides subject type "client"; nil uses IsClientToken.
-	IsClient func(auth.Principal) bool
 	// Logger overrides the package logger.
 	Logger *slog.Logger
 }
@@ -56,8 +56,10 @@ type PEP struct {
 	listMax   int
 	searchMax int
 	kinds     []string
-	isClient  func(auth.Principal) bool
 	log       *slog.Logger
+
+	// missingIdentity logs the first session refused for lacking an identity.
+	missingIdentity sync.Once
 }
 
 var _ auth.AuthzProvider = (*PEP)(nil)
@@ -74,14 +76,13 @@ func New(cfg Config) (*PEP, error) {
 		listMax:   cfg.ListMax,
 		searchMax: cfg.SearchMax,
 		kinds:     append(append([]string{}, BuiltinKinds...), cfg.ExtraKinds...),
-		isClient:  cfg.IsClient,
 		log:       cfg.Logger,
 	}
 	if p.listMax <= 0 {
 		p.listMax = defaultListMax
 	}
-	if p.isClient == nil {
-		p.isClient = IsClientToken
+	if p.searchMax <= 0 {
+		p.searchMax = p.listMax
 	}
 	if p.log == nil {
 		p.log = logger

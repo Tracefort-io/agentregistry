@@ -2,6 +2,7 @@ package authz
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/auth"
@@ -14,21 +15,6 @@ const (
 	SubjectTypeClient    = "client"
 	SubjectTypeAnonymous = "anonymous"
 )
-
-// IsClientToken reports whether a principal is a client acting for itself
-// (client credentials) rather than a user. It is the default
-// Config.IsClient; replace it when an issuer's clientSubjectClaim decides.
-func IsClientToken(p auth.Principal) bool {
-	if p.ClientID != "" && p.Subject == p.ClientID {
-		return true
-	}
-	if p.Claims == nil {
-		return false
-	}
-	clientID, _ := p.Claims["client_id"].(string)
-	_, hasUsername := p.Claims["preferred_username"]
-	return clientID != "" && !hasUsername
-}
 
 // caller is the resolved identity of a request.
 type caller struct {
@@ -58,13 +44,23 @@ func (p *PEP) callerFor(s auth.Session) (caller, error) {
 	}
 	pr := s.Principal()
 	if !pr.IsAuthenticated() {
+		// The session came from an AuthnProvider but carries no identity the
+		// PDP can be asked about. Refuse it, and say why once: a custom
+		// provider that only fills Principal.User would otherwise fail
+		// every request without explanation.
+		p.missingIdentity.Do(func() {
+			p.log.Warn("refusing sessions without Principal.Subject and Principal.Issuer; "+
+				"the AuthnProvider must set them when auth mode is required",
+				"session_type", fmt.Sprintf("%T", s))
+		})
 		return caller{}, unauthenticated()
 	}
-	return caller{subject: subjectFor(pr, p.isClient(pr))}, nil
+	return caller{subject: subjectFor(pr)}, nil
 }
 
-// subjectFor builds the contract's subject from verified claims.
-func subjectFor(pr auth.Principal, isClient bool) authzen.Subject {
+// subjectFor builds the contract's subject from verified claims. The subject
+// type follows Principal.IsClient, which the AuthnProvider sets.
+func subjectFor(pr auth.Principal) authzen.Subject {
 	props := map[string]any{
 		"iss":    pr.Issuer,
 		"roles":  nonNil(pr.Roles),
@@ -84,7 +80,7 @@ func subjectFor(pr auth.Principal, isClient bool) authzen.Subject {
 		props["act"] = act
 	}
 	typ := SubjectTypeUser
-	if isClient {
+	if pr.IsClient {
 		typ = SubjectTypeClient
 	}
 	return authzen.Subject{Type: typ, ID: pr.Subject, Properties: props}

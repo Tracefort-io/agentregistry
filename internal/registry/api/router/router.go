@@ -169,7 +169,7 @@ func NewHumaAPI(
 	if authnProvider != nil {
 		if cfg.AuthMode == config.AuthModeRequired {
 			openPaths = openPathSet(cfg.AuthOpenPaths)
-			guard = requireAuthn(authnProvider, openPaths)
+			guard = auth.HTTPMiddleware(authnProvider, skipPathsOption(openPaths))
 		} else {
 			openPaths = openPathSet(legacyAuthnSkipPaths)
 		}
@@ -194,7 +194,8 @@ func NewHumaAPI(
 			middlewareOpts = append(middlewareOpts, auth.WithPublicPaths(
 				mcpregistrycompat.BasePath(cfg.MCPRegistryCompatPathPrefix)+"/"))
 		}
-		api.UseMiddleware(authnHumaMiddleware(authnProvider, openPaths, middlewareOpts...))
+		middlewareOpts = append(middlewareOpts, skipPathsOption(openPaths))
+		api.UseMiddleware(auth.AuthnMiddleware(authnProvider, middlewareOpts...))
 	}
 
 	// Add OpenAPI tag metadata with descriptions
@@ -249,8 +250,14 @@ func NewHumaAPI(
 		metricsHandler = guard(metricsHandler)
 	}
 	mux.Handle("/metrics", metricsHandler)
-	// Add /logging to control component loggers (localhost only)
-	mux.HandleFunc("/logging", logging.LocalhostOnly(logging.HTTPLevelHandler))
+	// Add /logging to control component loggers (localhost only). With auth
+	// required it also needs a token: behind a same-pod proxy every request
+	// arrives from localhost.
+	var loggingHandler http.Handler = http.HandlerFunc(logging.LocalhostOnly(logging.HTTPLevelHandler))
+	if guard != nil {
+		loggingHandler = guard(loggingHandler)
+	}
+	mux.Handle("/logging", loggingHandler)
 
 	// Serve UI from root path or handle 404 for non-API routes
 	if uiHandler != nil {

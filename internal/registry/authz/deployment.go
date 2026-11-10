@@ -11,8 +11,10 @@ import (
 )
 
 // authorizeDeploymentApply sends one deny_on_first_deny batch: deploy on
-// the target, read on the runtime, apply on the Deployment. All must
-// permit. The refs come from the submitted Deployment.
+// the target, read on the runtime, apply on the Deployment, then read on
+// every other resource the Deployment binds to (its effective Model and its
+// deploymentRefs). All must permit. The refs come from the submitted
+// Deployment.
 func (p *PEP) authorizeDeploymentApply(ctx context.Context, subject authzen.Subject, in types.AuthorizeInput) error {
 	spec, err := deploymentSpec(in.Object)
 	if err != nil {
@@ -30,13 +32,22 @@ func (p *PEP) authorizeDeploymentApply(ctx context.Context, subject authzen.Subj
 		return forbidden("deployment spec.runtimeRef must name a Runtime")
 	}
 
-	checks := []struct {
+	type check struct {
 		action string
 		res    authzen.Resource
-	}{
+	}
+	checks := []check{
 		{ActionDeploy, objectResource(target.Kind, defaultNS(target.Namespace, in.Namespace), target.Name, target.Tag)},
 		{ActionRead, objectResource(v1alpha1.KindRuntime, defaultNS(runtime.Namespace, in.Namespace), runtime.Name, "")},
 		{ActionApply, objectResource(v1alpha1.KindDeployment, in.Namespace, in.Name, "")},
+	}
+	if model := spec.EffectiveModelRef(); model != nil {
+		checks = append(checks, check{ActionRead,
+			objectResource(v1alpha1.KindModel, defaultNS(model.Namespace, in.Namespace), model.Name, model.Tag)})
+	}
+	for _, ref := range spec.DeploymentRefs {
+		checks = append(checks, check{ActionRead,
+			objectResource(v1alpha1.KindDeployment, defaultNS(ref.Namespace, in.Namespace), ref.Name, "")})
 	}
 	req := authzen.EvaluationsRequest{
 		Subject:     &subject,
