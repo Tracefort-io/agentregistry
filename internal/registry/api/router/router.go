@@ -135,6 +135,12 @@ func handle404(w http.ResponseWriter, r *http.Request) {
 // Returns an error when RegisterRoutes rejects the supplied
 // RouteOptions (e.g. Stores missing).
 //
+// When authnProvider is set and cfg.AuthMode is "required", cfg.AuthOpenPaths
+// lists the exact paths served without authentication (each also under /v0,
+// so "/health" opens "/v0/health"); every other route, including /docs, the
+// OpenAPI documents and /metrics, requires it. In other modes the legacy skip
+// list is matched exactly and docs and /metrics stay open.
+//
 // Note: authz is handled at the DB/service layer, not at the API layer.
 func NewHumaAPI(
 	cfg *config.Config,
@@ -155,22 +161,40 @@ func NewHumaAPI(
 		humaConfig.Components.Schemas = huma.NewMapRegistry("#/components/schemas/", schemaNamer)
 	}
 
-	// Create a new API using humago adapter for standard library
-	api := humago.New(mux, humaConfig)
+	// With auth required, only the exact cfg.AuthOpenPaths skip authentication;
+	// docs, OpenAPI documents and /metrics require it too. Otherwise the legacy
+	// skip list applies, matched exactly, and docs and /metrics stay open.
+	var openPaths map[string]bool
+	var guard func(http.Handler) http.Handler
+	if authnProvider != nil {
+		if cfg.AuthMode == config.AuthModeRequired {
+			openPaths = openPathSet(cfg.AuthOpenPaths)
+			guard = requireAuthn(authnProvider, openPaths)
+		} else {
+			openPaths = openPathSet(legacyAuthnSkipPaths)
+		}
+	}
+
+	// Create a new API using humago adapter for standard library. huma
+	// registers its docs and OpenAPI routes here, outside the middleware
+	// chain, so they are wrapped with the guard.
+	humaMux := &guardedMux{ServeMux: mux, wrap: guard}
+	api := humago.New(humaMux, humaConfig)
+	humaMux.wrap = nil
+
+	// Every operation carries a request ID, passed to the AuthZEN PDP.
+	api.UseMiddleware(requestIDMiddleware)
 
 	// Add authn middleware if configured
 	if authnProvider != nil {
-		middlewareOpts := []auth.MiddlewareOption{
-			// don't authenticate on public paths which require no authorization
-			auth.WithSkipPaths("/health", "/metrics", "/ping", "/docs", "/version"),
-		}
+		var middlewareOpts []auth.MiddlewareOption
 		if cfg.MCPRegistryCompatEnabled {
 			// The /v0.1 compatibility API is a public catalogue that still goes through authorization:
 			// anonymous requests carry a PublicSession for the hooks, and credentialed ones authenticate.
 			middlewareOpts = append(middlewareOpts, auth.WithPublicPaths(
 				mcpregistrycompat.BasePath(cfg.MCPRegistryCompatPathPrefix)+"/"))
 		}
-		api.UseMiddleware(auth.AuthnMiddleware(authnProvider, middlewareOpts...))
+		api.UseMiddleware(authnHumaMiddleware(authnProvider, openPaths, middlewareOpts...))
 	}
 
 	// Add OpenAPI tag metadata with descriptions
@@ -220,7 +244,11 @@ func NewHumaAPI(
 	}
 
 	// Add /metrics for Prometheus metrics using promhttp
-	mux.Handle("/metrics", metrics.PrometheusHandler())
+	metricsHandler := metrics.PrometheusHandler()
+	if guard != nil {
+		metricsHandler = guard(metricsHandler)
+	}
+	mux.Handle("/metrics", metricsHandler)
 	// Add /logging to control component loggers (localhost only)
 	mux.HandleFunc("/logging", logging.LocalhostOnly(logging.HTTPLevelHandler))
 

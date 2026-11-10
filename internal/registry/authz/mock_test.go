@@ -1,0 +1,128 @@
+package authz
+
+import (
+	"context"
+	"errors"
+	"sync"
+
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/auth"
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/authzen"
+)
+
+var errPDPDown = errors.New("pdp down")
+
+// mockPDP is a Decider whose decisions come from decide.
+type mockPDP struct {
+	mu        sync.Mutex
+	decide    func(authzen.EvaluationRequest) bool
+	err       error // returned by Evaluate / Evaluations / search
+	shortBy   int   // drop this many decisions from batch responses
+	search    bool
+	searchErr error
+	results   []authzen.Resource
+
+	evals    []authzen.EvaluationRequest
+	batches  []authzen.EvaluationsRequest
+	searches []authzen.ResourceSearchRequest
+}
+
+func newMockPDP(decide func(authzen.EvaluationRequest) bool) *mockPDP {
+	if decide == nil {
+		decide = func(authzen.EvaluationRequest) bool { return true }
+	}
+	return &mockPDP{decide: decide}
+}
+
+func (m *mockPDP) Evaluate(_ context.Context, req authzen.EvaluationRequest) (authzen.EvaluationResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.evals = append(m.evals, req)
+	if m.err != nil {
+		return authzen.EvaluationResponse{}, m.err
+	}
+	return authzen.EvaluationResponse{Decision: m.decide(req)}, nil
+}
+
+func (m *mockPDP) Evaluations(_ context.Context, req authzen.EvaluationsRequest) (authzen.EvaluationsResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.batches = append(m.batches, req)
+	if m.err != nil {
+		return authzen.EvaluationsResponse{}, m.err
+	}
+	var out []authzen.EvaluationResponse
+	for i := range req.Evaluations {
+		item, err := req.Expand(i)
+		if err != nil {
+			return authzen.EvaluationsResponse{}, err
+		}
+		d := m.decide(item)
+		out = append(out, authzen.EvaluationResponse{Decision: d})
+		if req.Semantic() == authzen.DenyOnFirstDeny && !d {
+			break
+		}
+	}
+	if m.shortBy > 0 && len(out) >= m.shortBy {
+		out = out[:len(out)-m.shortBy]
+	}
+	return authzen.EvaluationsResponse{Evaluations: out}, nil
+}
+
+func (m *mockPDP) SupportsResourceSearch(context.Context) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.search, m.searchErr
+}
+
+func (m *mockPDP) SearchResources(_ context.Context, req authzen.ResourceSearchRequest, _ int) ([]authzen.Resource, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.searches = append(m.searches, req)
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.results, nil
+}
+
+func (m *mockPDP) calls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.evals) + len(m.batches) + len(m.searches)
+}
+
+// mockLister returns fixed candidates.
+type mockLister struct {
+	ids       []ResourceID
+	err       error
+	lastLimit int
+	lastNS    string
+}
+
+func (l *mockLister) ListIDs(_ context.Context, _ string, namespace string, limit int) ([]ResourceID, error) {
+	l.lastLimit, l.lastNS = limit, namespace
+	if l.err != nil {
+		return nil, l.err
+	}
+	if limit > 0 && len(l.ids) > limit {
+		return l.ids[:limit], nil
+	}
+	return l.ids, nil
+}
+
+// userSession is an authenticated user principal.
+type userSession struct{ p auth.Principal }
+
+func (s userSession) Principal() auth.Principal { return s.p }
+
+func alice() auth.Principal {
+	return auth.Principal{
+		Subject: "alice-sub", Issuer: "https://idp.example", ClientID: "registry-ui",
+		Username: "alice", Roles: []string{"registry-reader"}, Groups: []string{"eng"},
+		Claims: map[string]any{"preferred_username": "alice", "azp": "registry-ui"},
+	}
+}
+
+func userCtx(p auth.Principal) context.Context {
+	ctx := auth.AuthSessionTo(context.Background(), userSession{p: p})
+	return authzen.WithRequestID(ctx, "req-1")
+}

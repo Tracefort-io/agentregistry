@@ -69,11 +69,16 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 	setupLogging(cfg.LogLevel)
 
 	// The default configuration omits authentication. Integrators can supply
-	// authentication and authorization providers through AppOptions.
-	authnProvider := options.AuthnProvider
+	// authentication and authorization providers through AppOptions; with
+	// AUTH_MODE=required they are built from config (JWT + AuthZEN).
+	authWiring, err := buildAuth(ctx, cfg, options)
+	if err != nil {
+		return fmt.Errorf("configure auth: %w", err)
+	}
+	authnProvider := authWiring.authn
 
 	// Resolve authz provider: use provided, or default to public authz
-	authzProvider := options.AuthzProvider
+	authzProvider := authWiring.authz
 	if authzProvider == nil {
 		slog.Info("using public authz provider")
 		authzProvider = auth.NewPublicAuthzProvider()
@@ -197,6 +202,9 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 		}
 	}()
 
+	if err := authWiring.applyHooks(&options, stores); err != nil {
+		return fmt.Errorf("configure authz hooks: %w", err)
+	}
 	perKindHooks := crudPerKindHooks(options)
 	wireSecretService(&perKindHooks, stores, secretStore)
 	routeOpts := buildRouteOptions(options, stores, deploymentAdapters, perKindHooks)

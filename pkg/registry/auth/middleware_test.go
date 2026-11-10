@@ -75,6 +75,7 @@ func newTestAPI(t *testing.T, opts ...auth.MiddlewareOption) (humatest.TestAPI, 
 	huma.Register(api, get("health", "/health"), h)
 	huma.Register(api, get("list-servers", "/v0.1/servers"), h)
 	huma.Register(api, get("private-list", "/v0/mcpservers"), h)
+	huma.Register(api, get("private-get", "/v0/agents/{name}"), h)
 	huma.Register(api, get("sibling-list", "/v0.1sibling/servers"), h)
 	huma.Register(api, get("list-versions", "/v0.1/servers/{serverName}/versions"), h)
 	huma.Register(api, get("get-version", "/v0.1/servers/{serverName}/versions/{version}"), h)
@@ -170,6 +171,42 @@ func TestAuthnMiddlewarePublicPaths(t *testing.T) {
 			assert.Equal(t, tt.wantSession, capture.session)
 		})
 	}
+}
+
+// A skip path must match the whole request path. Matching the last segment
+// would serve a resource named after a skip path (an agent called "health")
+// without authentication.
+func TestAuthnMiddlewareSkipPathsMatchExactly(t *testing.T) {
+	api, capture := newTestAPI(t, auth.WithSkipPaths("/health"))
+
+	tests := []struct {
+		name        string
+		path        string
+		wantStatus  int
+		wantHandled bool
+	}{
+		{"exact skip path", "/health", http.StatusOK, true},
+		{"resource named after a skip path", "/v0/agents/health", http.StatusUnauthorized, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			capture.reset()
+
+			resp := api.Get(tt.path)
+
+			assert.Equal(t, tt.wantStatus, resp.Code)
+			assert.Equal(t, tt.wantHandled, capture.handled)
+		})
+	}
+}
+
+func TestAuthnMiddlewareChallengesUnauthenticated(t *testing.T) {
+	api, _ := newTestAPI(t)
+
+	resp := api.Get("/v0/mcpservers")
+
+	assert.Equal(t, http.StatusUnauthorized, resp.Code)
+	assert.Equal(t, "Bearer", resp.Header().Get("WWW-Authenticate"))
 }
 
 func TestAuthnMiddlewareWithoutPublicPaths(t *testing.T) {

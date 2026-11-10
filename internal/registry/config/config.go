@@ -78,6 +78,46 @@ type Config struct {
 	// discovery polls may omit a discovered Deployment before it is deleted.
 	ControllerDiscoveryDeleteAfterMisses int `env:"CONTROLLER_DISCOVERY_DELETE_AFTER_MISSES" envDefault:"5"`
 
+	// Authentication
+	//
+	// AuthMode is "disabled" (default; no authentication, the OSS behavior) or
+	// "required". With "required" the server refuses to start unless at least
+	// one issuer and an AuthZEN PDP are configured, and every request except
+	// AuthOpenPaths must carry a valid token.
+	AuthMode string `env:"AUTH_MODE" envDefault:"disabled"`
+	// AuthIssuers is a JSON array of trusted token issuers (see
+	// pkg/registry/auth/jwt.IssuerConfig). AuthIssuersFile reads the same
+	// JSON from a file and wins when both are set.
+	AuthIssuers     string `env:"AUTH_ISSUERS" envDefault:""`
+	AuthIssuersFile string `env:"AUTH_ISSUERS_FILE" envDefault:""`
+	// AuthClockSkew is the leeway applied to exp, nbf and iat.
+	AuthClockSkew time.Duration `env:"AUTH_CLOCK_SKEW" envDefault:"30s"`
+	// AuthOpenPaths are exact paths served without authentication.
+	AuthOpenPaths []string `env:"AUTH_OPEN_PATHS" envSeparator:"," envDefault:"/health,/ping,/version"`
+
+	// Authorization (OpenID AuthZEN 1.0 PDP)
+	//
+	// AuthzenURL is the PDP base URL; endpoints are discovered from
+	// <AuthzenURL>/.well-known/authzen-configuration.
+	AuthzenURL string `env:"AUTHZEN_URL" envDefault:""`
+	// AuthzenTimeout bounds every PDP call; a timeout is a denial.
+	AuthzenTimeout time.Duration `env:"AUTHZEN_TIMEOUT" envDefault:"1500ms"`
+	// AuthzenCacheTTL caches permit decisions per (subject, action, resource).
+	// 0 disables caching. Denials are never cached.
+	AuthzenCacheTTL time.Duration `env:"AUTHZEN_CACHE_TTL" envDefault:"5s"`
+	// The registry authenticates to the PDP with an OAuth 2.0
+	// client-credentials token when AuthzenTokenURL is set...
+	AuthzenTokenURL         string   `env:"AUTHZEN_TOKEN_URL" envDefault:""`
+	AuthzenClientID         string   `env:"AUTHZEN_CLIENT_ID" envDefault:""`
+	AuthzenClientSecret     string   `env:"AUTHZEN_CLIENT_SECRET" envDefault:""`
+	AuthzenClientSecretFile string   `env:"AUTHZEN_CLIENT_SECRET_FILE" envDefault:""`
+	AuthzenScopes           []string `env:"AUTHZEN_SCOPES" envSeparator:"," envDefault:""`
+	// ...or, as a fallback for PDPs without OAuth, with a static bearer token.
+	AuthzenStaticToken     string `env:"AUTHZEN_STATIC_TOKEN" envDefault:""`
+	AuthzenStaticTokenFile string `env:"AUTHZEN_STATIC_TOKEN_FILE" envDefault:""`
+	// AuthzenListMax caps how many rows a list filter authorizes per request.
+	AuthzenListMax int `env:"AUTHZEN_LIST_MAX" envDefault:"1000"`
+
 	// SkipMigrations gates the server's Postgres migrator at startup.
 	// Set true when migrations are applied out-of-band (e.g. by
 	// `arctl db migrate up` from CI/CD ahead of the rollout).

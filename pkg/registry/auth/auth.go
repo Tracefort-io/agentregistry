@@ -47,8 +47,41 @@ type User struct {
 }
 
 // Authn
+
+// Principal is the authenticated caller. Identity fields are populated from
+// verified token claims by an AuthnProvider; they are empty for the
+// PublicSession and SystemSession.
 type Principal struct {
 	User User
+
+	// Subject is the token's "sub" claim.
+	Subject string
+	// Issuer is the token's "iss" claim. (Issuer, Subject) identifies the caller.
+	Issuer string
+	// ClientID is the OAuth client the token was issued to ("azp" or "client_id").
+	ClientID string
+	// Username is a display name for logs and the UI (for example "preferred_username").
+	Username string
+	// Roles and Groups are read from the claims configured for the issuer.
+	Roles  []string
+	Groups []string
+	// Actor is the RFC 8693 "act" chain when a client acts on behalf of the
+	// subject, outermost actor first. Empty when the subject acts directly.
+	Actor []Actor
+	// Claims holds every verified claim, for policies that need more than the
+	// fields above.
+	Claims map[string]any
+}
+
+// Actor is one link of an RFC 8693 delegation chain.
+type Actor struct {
+	Subject string
+	Issuer  string
+}
+
+// IsAuthenticated reports whether the principal carries a verified identity.
+func (p Principal) IsAuthenticated() bool {
+	return p.Subject != "" && p.Issuer != ""
 }
 
 type Session interface {
@@ -85,9 +118,10 @@ type middlewareConfig struct {
 
 type MiddlewareOption func(*middlewareConfig)
 
-// WithPublicPaths marks paths that can skip authentication and require no
-// authorization. Used for endpoints outside the authz model, such as health
-// and metrics.
+// WithSkipPaths marks exact request paths that skip authentication and require
+// no authorization. Used for endpoints outside the authz model, such as health
+// and metrics. A path must match the whole request path: "/health" does not
+// open "/v0/health" or "/v0/agents/health".
 func WithSkipPaths(paths ...string) MiddlewareOption {
 	return func(c *middlewareConfig) {
 		for _, path := range paths {
@@ -115,11 +149,8 @@ func AuthnMiddleware(authn AuthnProvider, options ...MiddlewareOption) func(ctx 
 	return func(ctx huma.Context, next func(huma.Context)) {
 		path := ctx.URL().Path
 
-		// Skip authentication for specified paths
-		// extract the last part of the path to match against skipPaths
-		pathParts := strings.Split(path, "/")
-		pathToMatch := "/" + pathParts[len(pathParts)-1]
-		if config.skipPaths[pathToMatch] || config.skipPaths[path] {
+		// Skip authentication for exact skip paths only.
+		if config.skipPaths[path] {
 			next(ctx)
 			return
 		}
@@ -139,6 +170,7 @@ func AuthnMiddleware(authn AuthnProvider, options ...MiddlewareOption) func(ctx 
 		session, err := authn.Authenticate(ctx.Context(), ctx.Header, url.Query())
 		if err != nil {
 			slog.Warn("authentication failed", "path", path, "error", err)
+			ctx.SetHeader("WWW-Authenticate", "Bearer")
 			ctx.SetStatus(http.StatusUnauthorized)
 			_, _ = ctx.BodyWriter().Write([]byte("Unauthorized"))
 			return
