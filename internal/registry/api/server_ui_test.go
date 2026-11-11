@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/agentregistry-dev/agentregistry/internal/registry/config"
 )
 
 // testUIFS simulates the Next.js static export layout:
@@ -90,6 +92,59 @@ func TestNewUIHandler(t *testing.T) {
 				body := w.Body.String()
 				if !strings.Contains(body, tt.wantBodyContains) {
 					t.Errorf("body %q does not contain %q", body, tt.wantBodyContains)
+				}
+			}
+		})
+	}
+}
+
+func TestUIContentSecurityPolicy(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *config.Config
+		want     []string
+		wantNone []string
+	}{
+		{
+			name:     "without sign-in",
+			cfg:      &config.Config{},
+			want:     []string{"default-src 'self'", "connect-src 'self';", "frame-ancestors 'none'", "object-src 'none'"},
+			wantNone: []string{"http:", "https:", "*"},
+		},
+		{
+			name: "allows the sign-in service's origin, not its path",
+			cfg:  &config.Config{AuthUIIssuer: "https://idp.example.com/realms/tracefort"},
+			want: []string{
+				"connect-src 'self' https://idp.example.com;",
+				"frame-src 'self' https://idp.example.com;",
+				"form-action 'self' https://idp.example.com;",
+			},
+			wantNone: []string{"/realms"},
+		},
+		{
+			name:     "replaced by HTTP_CSP",
+			cfg:      &config.Config{AuthUIIssuer: "https://idp.example.com/realms/r", HTTPCSP: "default-src 'none'"},
+			want:     []string{"default-src 'none'"},
+			wantNone: []string{"idp.example.com"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, err := newUIHandler(testUIFS)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rr := httptest.NewRecorder()
+			withUIContentSecurityPolicy(uiContentSecurityPolicy(tt.cfg), h).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/deployed", nil))
+			got := rr.Header().Get("Content-Security-Policy") + ";"
+			for _, s := range tt.want {
+				if !strings.Contains(got, s) {
+					t.Errorf("policy %q lacks %q", got, s)
+				}
+			}
+			for _, s := range tt.wantNone {
+				if strings.Contains(got, s) {
+					t.Errorf("policy %q must not contain %q", got, s)
 				}
 			}
 		})

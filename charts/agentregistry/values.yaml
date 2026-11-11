@@ -48,6 +48,30 @@ config:
   # -- Enable input validation on the registry API
   enableRegistryValidation: "false"
 
+# @section HTTP hardening
+
+# -- HTTP server protections. Security headers (nosniff, no framing, no
+# referrer) are always sent.
+http:
+  # -- Browser origins (scheme://host[:port]) allowed to call the API from
+  # another site, or ["*"]. Empty: any origin with auth disabled, same-origin
+  # only with auth required.
+  corsAllowedOrigins: []
+  # -- Time to read a whole request.
+  readTimeout: 30s
+  # -- Time to write a response (not applied to the MCP server, which streams).
+  writeTimeout: 2m
+  # -- How long an idle keep-alive connection stays open.
+  idleTimeout: 2m
+  # -- Largest request body accepted, in bytes; 0 for no limit.
+  maxBodyBytes: 1048576
+  # -- Strict-Transport-Security max-age; set it (for example 8760h) when the
+  # registry is reached over HTTPS. 0s sends no header.
+  hstsMaxAge: 0s
+  # -- Replaces the web UI's Content-Security-Policy. Empty: the registry's
+  # own origin plus the sign-in service's (auth.ui.issuer).
+  contentSecurityPolicy: ""
+
 # @section Authentication and authorization
 
 # -- Authentication (JWT) and authorization (an OpenID AuthZEN 1.0 PDP). Settings

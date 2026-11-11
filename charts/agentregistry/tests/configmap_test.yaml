@@ -64,3 +64,46 @@ tests:
       - equal:
           path: metadata.name
           value: myapp-config
+
+  - it: renders the HTTP hardening defaults
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_HTTP_READ_TIMEOUT
+          value: 30s
+      - equal:
+          path: data.AGENT_REGISTRY_HTTP_WRITE_TIMEOUT
+          value: 2m
+      - equal:
+          path: data.AGENT_REGISTRY_HTTP_IDLE_TIMEOUT
+          value: 2m
+      - equal:
+          path: data.AGENT_REGISTRY_HTTP_MAX_BODY_BYTES
+          value: "1048576"
+      - equal:
+          path: data.AGENT_REGISTRY_HTTP_HSTS_MAX_AGE
+          value: 0s
+      - notExists:
+          path: data.AGENT_REGISTRY_CORS_ALLOWED_ORIGINS
+      - notExists:
+          path: data.AGENT_REGISTRY_HTTP_CSP
+
+  - it: renders CORS origins, HSTS and a custom CSP
+    set:
+      http:
+        corsAllowedOrigins: [https://portal.example.com, http://localhost:3000]
+        hstsMaxAge: 8760h
+        maxBodyBytes: 4194304
+        contentSecurityPolicy: default-src 'self'
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_CORS_ALLOWED_ORIGINS
+          value: https://portal.example.com,http://localhost:3000
+      - equal:
+          path: data.AGENT_REGISTRY_HTTP_HSTS_MAX_AGE
+          value: 8760h
+      - equal:
+          path: data.AGENT_REGISTRY_HTTP_MAX_BODY_BYTES
+          value: "4194304"
+      - equal:
+          path: data.AGENT_REGISTRY_HTTP_CSP
+          value: default-src 'self'

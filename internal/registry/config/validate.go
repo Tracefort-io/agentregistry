@@ -20,7 +20,43 @@ func Validate(cfg *Config) error {
 	if cfg.ControllerRetentionPruneBatchLimit < 0 {
 		return fmt.Errorf("controller retention prune batch limit must be non-negative")
 	}
+	if err := validateHTTP(cfg); err != nil {
+		return err
+	}
 	return validateAuth(cfg)
+}
+
+// validateHTTP checks the HTTP hardening settings. Zero timeouts and a zero
+// body limit mean none, as in net/http.
+func validateHTTP(cfg *Config) error {
+	if cfg.HTTPReadTimeout < 0 || cfg.HTTPWriteTimeout < 0 || cfg.HTTPIdleTimeout < 0 {
+		return fmt.Errorf("HTTP timeouts must be non-negative")
+	}
+	if cfg.HTTPMaxBodyBytes < 0 {
+		return fmt.Errorf("HTTP max body bytes must be non-negative")
+	}
+	if cfg.HTTPHSTSMaxAge < 0 {
+		return fmt.Errorf("HTTP HSTS max age must be non-negative")
+	}
+	for _, origin := range cfg.CORSAllowedOrigins {
+		if origin == "*" {
+			if len(cfg.CORSAllowedOrigins) > 1 {
+				return fmt.Errorf("CORS_ALLOWED_ORIGINS: \"*\" cannot be combined with other origins")
+			}
+			continue
+		}
+		if !isOrigin(origin) {
+			return fmt.Errorf("CORS_ALLOWED_ORIGINS: %q is not an origin (scheme://host[:port])", origin)
+		}
+	}
+	return nil
+}
+
+// isOrigin reports whether s is a browser origin: an http(s) scheme and a
+// host, with nothing after them.
+func isOrigin(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && isHTTPURL(s) && u.Path == "" && u.RawQuery == "" && u.Fragment == "" && u.User == nil
 }
 
 // Auth modes accepted in AuthMode.

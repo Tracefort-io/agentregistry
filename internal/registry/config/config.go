@@ -115,6 +115,30 @@ type Config struct {
 	// AuthMCPScopes are advertised as scopes_supported in that metadata.
 	AuthMCPScopes []string `env:"AUTH_MCP_SCOPES" envSeparator:"," envDefault:""`
 
+	// HTTP hardening
+	//
+	// CORSAllowedOrigins are the browser origins (scheme://host[:port]) that
+	// may call the API from another site, or "*" for any. Empty means "*"
+	// with AuthMode "disabled" (the OSS behavior) and same-origin only with
+	// AuthMode "required".
+	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:""`
+	// Timeouts of the HTTP servers. The MCP server streams responses, so it
+	// applies the read and idle timeouts but not the write timeout.
+	HTTPReadTimeout  time.Duration `env:"HTTP_READ_TIMEOUT" envDefault:"30s"`
+	HTTPWriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"2m"`
+	HTTPIdleTimeout  time.Duration `env:"HTTP_IDLE_TIMEOUT" envDefault:"2m"`
+	// HTTPMaxBodyBytes caps every request body; larger requests get 413. API
+	// operations also apply their own limit (1 MiB unless an operation says
+	// otherwise), so raising this alone does not raise theirs.
+	HTTPMaxBodyBytes int64 `env:"HTTP_MAX_BODY_BYTES" envDefault:"1048576"`
+	// HTTPHSTSMaxAge, when above zero, sends Strict-Transport-Security so
+	// browsers use only HTTPS. Set it when the registry (or the gateway in
+	// front) is served over HTTPS.
+	HTTPHSTSMaxAge time.Duration `env:"HTTP_HSTS_MAX_AGE" envDefault:"0s"`
+	// HTTPCSP replaces the Content-Security-Policy sent with the web UI. By
+	// default it allows the registry's own origin and AuthUIIssuer's.
+	HTTPCSP string `env:"HTTP_CSP" envDefault:""`
+
 	// Authorization (OpenID AuthZEN 1.0 PDP)
 	//
 	// AuthzenURL is the PDP base URL; endpoints are discovered from

@@ -839,10 +839,13 @@ func startMCPServer(
 	}
 	mux := buildMCPMux(handler, resourceMetadata)
 	addr := ":" + strconv.Itoa(int(cfg.MCPPort))
+	// No write timeout: MCP responses may stream for as long as the session.
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           api.Harden(cfg, mux),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       cfg.HTTPReadTimeout,
+		IdleTimeout:       cfg.HTTPIdleTimeout,
 	}
 	go func() {
 		slog.Info("MCP HTTP server starting", "address", addr)

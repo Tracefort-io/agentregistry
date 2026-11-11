@@ -1,125 +1,126 @@
 package api_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
-	"github.com/rs/cors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/agentregistry-dev/agentregistry/internal/registry/api"
+	"github.com/agentregistry-dev/agentregistry/internal/registry/config"
 )
 
-// newCORSTestHandler returns the same middleware stack NewServer wires
-// (TrailingSlash → CORS → mux), but bound to a stub mux that just 200s
-// every path. Lets CORS assertions run without a database or any of the
-// v0 route registrations.
-func newCORSTestHandler() http.Handler {
+// newTestHandler returns the middleware stack NewServer wires, around a stub
+// mux that reads the body and answers 200 (or 413 when the body is over the
+// limit). Lets the assertions run without a database or route registrations.
+func newTestHandler(cfg *config.Config) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.ReadAll(r.Body); err != nil {
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	})
-
-	corsHandler := cors.New(cors.Options{
-		AllowedOrigins: []string{"*"},
-		AllowedMethods: []string{
-			http.MethodGet,
-			http.MethodPost,
-			http.MethodPut,
-			http.MethodDelete,
-			http.MethodOptions,
-		},
-		AllowedHeaders:   []string{"*"},
-		ExposedHeaders:   []string{"Content-Type", "Content-Length"},
-		AllowCredentials: false,
-		MaxAge:           86400,
-	})
-
-	return api.TrailingSlashMiddleware(corsHandler.Handler(mux))
+	return api.Middleware(cfg, mux)
 }
 
-func TestCORSHeaders(t *testing.T) {
-	handler := newCORSTestHandler()
-
+func TestCORS(t *testing.T) {
 	tests := []struct {
-		name           string
-		method         string
-		path           string
-		expectCORS     bool
-		checkPreflight bool
+		name      string
+		cfg       *config.Config
+		origin    string
+		wantAllow string
 	}{
-		{
-			name:       "GET request should have CORS headers",
-			method:     http.MethodGet,
-			path:       "/v0/health",
-			expectCORS: true,
-		},
-		{
-			name:       "POST request should have CORS headers",
-			method:     http.MethodPost,
-			path:       "/v0/mcpservers",
-			expectCORS: true,
-		},
-		{
-			name:           "OPTIONS preflight request should succeed",
-			method:         http.MethodOptions,
-			path:           "/v0/mcpservers",
-			expectCORS:     true,
-			checkPreflight: true,
-		},
-		{
-			name:       "PUT request should have CORS headers",
-			method:     http.MethodPut,
-			path:       "/v0/mcpservers/test/v1",
-			expectCORS: true,
-		},
-		{
-			name:       "DELETE request should have CORS headers",
-			method:     http.MethodDelete,
-			path:       "/v0/mcpservers/test/v1",
-			expectCORS: true,
-		},
+		{"auth disabled, none configured: any origin", &config.Config{}, "https://example.com", "*"},
+		{"auth required, none configured: same-origin only", &config.Config{AuthMode: config.AuthModeRequired}, "https://example.com", ""},
+		{"allowlisted origin", &config.Config{AuthMode: config.AuthModeRequired, CORSAllowedOrigins: []string{"https://portal.example.com"}}, "https://portal.example.com", "https://portal.example.com"},
+		{"origin not on the allowlist", &config.Config{AuthMode: config.AuthModeRequired, CORSAllowedOrigins: []string{"https://portal.example.com"}}, "https://evil.example.com", ""},
+		{"explicit any origin with auth", &config.Config{AuthMode: config.AuthModeRequired, CORSAllowedOrigins: []string{"*"}}, "https://example.com", "*"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(tt.method, tt.path, nil)
-			req.Header.Set("Origin", "https://example.com")
-			if tt.checkPreflight {
-				req.Header.Set("Access-Control-Request-Method", "GET")
-				req.Header.Set("Access-Control-Request-Headers", "Content-Type")
+			handler := newTestHandler(tt.cfg)
+			for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete} {
+				req := httptest.NewRequest(method, "/v0/mcpservers", nil)
+				req.Header.Set("Origin", tt.origin)
+				rr := httptest.NewRecorder()
+				handler.ServeHTTP(rr, req)
+				assert.Equal(t, tt.wantAllow, rr.Header().Get("Access-Control-Allow-Origin"), method)
 			}
 
+			req := httptest.NewRequest(http.MethodOptions, "/v0/mcpservers", nil)
+			req.Header.Set("Origin", tt.origin)
+			req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+			req.Header.Set("Access-Control-Request-Headers", "Content-Type, Authorization")
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, req)
-
-			if tt.expectCORS {
-				assert.NotEmpty(t, rr.Header().Get("Access-Control-Allow-Origin"), "Access-Control-Allow-Origin header should be set")
+			assert.Equal(t, tt.wantAllow, rr.Header().Get("Access-Control-Allow-Origin"), "preflight")
+			if tt.wantAllow != "" {
+				assert.Contains(t, rr.Header().Get("Access-Control-Allow-Methods"), http.MethodPost)
+				assert.Empty(t, rr.Header().Get("Access-Control-Allow-Credentials"), "bearer tokens, never cookies")
 			}
 		})
 	}
 }
 
-func TestCORSHeaderValues(t *testing.T) {
-	handler := newCORSTestHandler()
+func TestSecurityHeaders(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *config.Config
+		wantHSTS string
+	}{
+		{"without HSTS", &config.Config{}, ""},
+		{"with HSTS", &config.Config{HTTPHSTSMaxAge: 365 * 24 * time.Hour}, "max-age=31536000; includeSubDomains"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := newTestHandler(tt.cfg)
+			// Every response, including redirects, carries the headers.
+			for _, path := range []string{"/v0/agents", "/v0/agents/"} {
+				rr := httptest.NewRecorder()
+				handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
+				h := rr.Header()
+				assert.Equal(t, "nosniff", h.Get("X-Content-Type-Options"), path)
+				assert.Equal(t, "DENY", h.Get("X-Frame-Options"), path)
+				assert.Equal(t, "no-referrer", h.Get("Referrer-Policy"), path)
+				assert.Equal(t, "same-origin", h.Get("Cross-Origin-Opener-Policy"), path)
+				assert.Equal(t, tt.wantHSTS, h.Get("Strict-Transport-Security"), path)
+			}
+		})
+	}
+}
 
-	req := httptest.NewRequest(http.MethodOptions, "/v0/mcpservers", nil)
-	req.Header.Set("Origin", "https://example.com")
-	req.Header.Set("Access-Control-Request-Method", "POST")
-	req.Header.Set("Access-Control-Request-Headers", "Content-Type, Authorization")
+func TestBodyLimit(t *testing.T) {
+	limited := newTestHandler(&config.Config{HTTPMaxBodyBytes: 10})
+	unlimited := newTestHandler(&config.Config{})
 
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	// Check that wildcard origin is allowed (our current CORS config).
-	allowOrigin := rr.Header().Get("Access-Control-Allow-Origin")
-	assert.Equal(t, "*", allowOrigin, "should allow any origin with wildcard")
-
-	// Check that common methods are exposed (allowed methods header may or
-	// may not be echoed depending on middleware; assert only when set).
-	allowMethods := rr.Header().Get("Access-Control-Allow-Methods")
-	if allowMethods != "" {
-		assert.Contains(t, allowMethods, "POST")
+	tests := []struct {
+		name    string
+		handler http.Handler
+		body    string
+		chunked bool
+		want    int
+	}{
+		{"within the limit", limited, "0123456789", false, http.StatusOK},
+		{"over the limit by Content-Length", limited, "0123456789x", false, http.StatusRequestEntityTooLarge},
+		{"over the limit without Content-Length", limited, "0123456789x", true, http.StatusRequestEntityTooLarge},
+		{"zero means no limit", unlimited, strings.Repeat("x", 1<<20), false, http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v0/apply", strings.NewReader(tt.body))
+			if tt.chunked {
+				req.ContentLength = -1
+			}
+			rr := httptest.NewRecorder()
+			tt.handler.ServeHTTP(rr, req)
+			require.Equal(t, tt.want, rr.Code)
+		})
 	}
 }

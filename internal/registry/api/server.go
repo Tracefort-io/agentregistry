@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/rs/cors"
 
 	"github.com/agentregistry-dev/agentregistry/internal/registry/api/router"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/config"
@@ -180,30 +179,16 @@ func NewServer(
 		}
 	}
 
+	if uiHandler != nil {
+		uiHandler = withUIContentSecurityPolicy(uiContentSecurityPolicy(cfg), uiHandler)
+	}
+
 	api, err := router.NewHumaAPI(cfg, mux, metrics, versionInfo, uiHandler, authnProvider, routeOpts, schemaNamer)
 	if err != nil {
 		return nil, err
 	}
 
-	// Configure CORS with permissive settings for public API
-	corsHandler := cors.New(cors.Options{
-		AllowedOrigins: []string{"*"},
-		AllowedMethods: []string{
-			http.MethodGet,
-			http.MethodPost,
-			http.MethodPut,
-			http.MethodDelete,
-			http.MethodOptions,
-		},
-		AllowedHeaders:   []string{"*"},
-		ExposedHeaders:   []string{"Content-Type", "Content-Length"},
-		AllowCredentials: false, // Must be false when AllowedOrigins is "*"
-		MaxAge:           86400, // 24 hours
-	})
-
-	// Wrap the mux with middleware stack
-	// Order: TrailingSlash -> CORS -> Mux
-	handler := TrailingSlashMiddleware(corsHandler.Handler(mux))
+	handler := Middleware(cfg, mux)
 
 	server := &Server{
 		config:  cfg,
@@ -213,6 +198,9 @@ func NewServer(
 			Addr:              cfg.ServerAddress,
 			Handler:           handler,
 			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       cfg.HTTPReadTimeout,
+			WriteTimeout:      cfg.HTTPWriteTimeout,
+			IdleTimeout:       cfg.HTTPIdleTimeout,
 		},
 	}
 

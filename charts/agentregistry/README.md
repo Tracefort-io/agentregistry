@@ -176,6 +176,14 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 | global.imagePullSecrets | list | `[]` | Global Docker registry secret names |
 | global.imageRegistry | string | `""` | Global container image registry override |
 | hostAliases | list | `[]` | Add custom entries to /etc/hosts |
+| http | object | `{"contentSecurityPolicy":"","corsAllowedOrigins":[],"hstsMaxAge":"0s","idleTimeout":"2m","maxBodyBytes":1048576,"readTimeout":"30s","writeTimeout":"2m"}` | HTTP server protections. Security headers (nosniff, no framing, no referrer) are always sent. |
+| http.contentSecurityPolicy | string | `""` | Replaces the web UI's Content-Security-Policy. Empty: the registry's own origin plus the sign-in service's (auth.ui.issuer). |
+| http.corsAllowedOrigins | list | `[]` | Browser origins (scheme://host[:port]) allowed to call the API from another site, or ["*"]. Empty: any origin with auth disabled, same-origin only with auth required. |
+| http.hstsMaxAge | string | `"0s"` | Strict-Transport-Security max-age; set it (for example 8760h) when the registry is reached over HTTPS. 0s sends no header. |
+| http.idleTimeout | string | `"2m"` | How long an idle keep-alive connection stays open. |
+| http.maxBodyBytes | int | `1048576` | Largest request body accepted, in bytes; 0 for no limit. |
+| http.readTimeout | string | `"30s"` | Time to read a whole request. |
+| http.writeTimeout | string | `"2m"` | Time to write a response (not applied to the MCP server, which streams). |
 | image.digest | string | `""` | Agent Registry image digest (overrides tag if set) |
 | image.name | string | `"server"` | Agent Registry image name |
 | image.pullPolicy | string | `"IfNotPresent"` | Agent Registry image pull policy |

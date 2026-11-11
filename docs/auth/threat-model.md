@@ -31,6 +31,9 @@ Scope: the registry API, web UI and MCP endpoint with `AGENT_REGISTRY_AUTH_MODE=
 | PDP down or slow | Every PDP call is time-bounded; any failure is a denial (`503`). Only permits are cached, briefly, so a revoked permission takes effect within `AUTHZEN_CACHE_TTL`. The PDP's address and errors are logged, never returned to the caller. | `pkg/registry/authzen`, `internal/registry/authz/errors.go` |
 | Starting without protection | With `AUTH_MODE=required` the server refuses to start unless issuers (or an `AuthnProvider`) and a PDP are configured. | `internal/registry/config`, `internal/registry/auth_wiring.go` |
 | Token theft from the browser | Tokens stay in memory, never in `localStorage` or `sessionStorage`; sign-in uses the authorization code flow with PKCE; the return path after sign-in must stay on the site. | `ui/lib/auth.tsx` |
+| Another website calling the API from a user's browser | CORS allows only `CORS_ALLOWED_ORIGINS`; with auth required and none configured, no other site may call it. Tokens are bearer tokens, never cookies, so a browser never attaches them on its own. | `internal/registry/api/hardening.go` |
+| Script injection or clickjacking in the web UI | The UI is served with a Content-Security-Policy allowing only its own origin and the sign-in service, no framing (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), and no plugins. Every response sends `nosniff` and `Referrer-Policy: no-referrer`; HSTS when `HTTP_HSTS_MAX_AGE` is set. | `internal/registry/api/hardening.go` |
+| Exhausting the server with slow or large requests | Read, write and idle timeouts on the API server (read and idle on the streaming MCP server); request bodies over `HTTP_MAX_BODY_BYTES` are refused with `413`. | `internal/registry/api`, `internal/registry/registry_app.go` |
 | Changing log levels remotely | `/logging` is localhost-only and, with auth required, also needs a token. | `internal/registry/api/router` |
 | Tracing a decision | Every request carries an `X-Request-ID`, sent to the PDP, so registry logs and decision logs can be joined. | `internal/registry/api/router` |
 
@@ -47,4 +50,5 @@ Scope: the registry API, web UI and MCP endpoint with `AGENT_REGISTRY_AUTH_MODE=
 - **Batch apply reports denials per document** with HTTP `200`; clients must read each result's `status`.
 - **Internal system sessions** (controllers, reconciliation) skip the PDP by design.
 - **Static PDP tokens** (`AUTHZEN_STATIC_TOKEN`) are shared secrets; prefer OAuth client credentials.
+- **The UI's policy allows inline scripts.** Next.js inlines its bootstrap code, so `script-src` includes `'unsafe-inline'`; the policy still blocks scripts from any other origin.
 - **No audit log yet.** Decisions are logged, but there is no tamper-evident record of who changed what.

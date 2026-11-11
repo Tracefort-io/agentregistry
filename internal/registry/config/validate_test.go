@@ -113,3 +113,34 @@ func TestValidate_Auth(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_HTTP(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *Config
+		wantErr bool
+	}{
+		{"zero values mean none", &Config{}, false},
+		{"defaults", &Config{HTTPReadTimeout: 30 * time.Second, HTTPWriteTimeout: 2 * time.Minute, HTTPIdleTimeout: 2 * time.Minute, HTTPMaxBodyBytes: 1 << 20}, false},
+		{"negative read timeout", &Config{HTTPReadTimeout: -time.Second}, true},
+		{"negative write timeout", &Config{HTTPWriteTimeout: -time.Second}, true},
+		{"negative idle timeout", &Config{HTTPIdleTimeout: -time.Second}, true},
+		{"negative body limit", &Config{HTTPMaxBodyBytes: -1}, true},
+		{"negative hsts", &Config{HTTPHSTSMaxAge: -time.Second}, true},
+		{"any origin", &Config{CORSAllowedOrigins: []string{"*"}}, false},
+		{"origins", &Config{CORSAllowedOrigins: []string{"https://portal.example.com", "http://localhost:3000"}}, false},
+		{"any origin mixed with others", &Config{CORSAllowedOrigins: []string{"*", "https://portal.example.com"}}, true},
+		{"origin with path", &Config{CORSAllowedOrigins: []string{"https://portal.example.com/app"}}, true},
+		{"origin with trailing slash", &Config{CORSAllowedOrigins: []string{"https://portal.example.com/"}}, true},
+		{"origin without scheme", &Config{CORSAllowedOrigins: []string{"portal.example.com"}}, true},
+		{"origin with other scheme", &Config{CORSAllowedOrigins: []string{"ftp://portal.example.com"}}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
