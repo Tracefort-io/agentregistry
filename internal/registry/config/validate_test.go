@@ -98,6 +98,9 @@ func TestValidate_Auth(t *testing.T) {
 		{"ui issuer without client", required(func(c *Config) { c.AuthUIIssuer = "https://idp.example.com/realms/r" }), true},
 		{"ui client without issuer", required(func(c *Config) { c.AuthUIClientID = "agentregistry-ui" }), true},
 		{"ui issuer not a url", required(func(c *Config) { c.AuthUIIssuer, c.AuthUIClientID = "idp", "agentregistry-ui" }), true},
+		{"mcp resource", required(func(c *Config) { c.AuthMCPResource = "https://registry.example.com/mcp" }), false},
+		{"mcp resource not a url", required(func(c *Config) { c.AuthMCPResource = "registry/mcp" }), true},
+		{"mcp resource with query", required(func(c *Config) { c.AuthMCPResource = "https://registry.example.com/mcp?x=1" }), true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

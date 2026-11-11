@@ -68,21 +68,35 @@ func (p *PEP) ListFilter(ctx context.Context, in types.AuthorizeInput) (string, 
 		p.logError(ctx, c.subject, ActionRead, res, err)
 		return "", nil, unavailable(err)
 	}
-	var ids []ResourceID
+	var r readable
 	if search {
-		ids, err = p.searchReadable(ctx, c.subject, in.Kind, in.Namespace)
+		r, err = p.searchReadable(ctx, c.subject, in.Kind, in.Namespace)
 	} else {
-		ids, err = p.evaluateReadable(ctx, c.subject, in.Kind, in.Namespace)
+		r.ids, err = p.evaluateReadable(ctx, c.subject, in.Kind, in.Namespace)
 	}
 	if err != nil {
 		return "", nil, err
 	}
-	where, args := Predicate(ids)
+	if r.all {
+		return "", nil, nil
+	}
+	where, args := predicateFor(r.namespaces, r.ids)
 	return where, args, nil
 }
 
-// searchReadable asks the PDP which resources of the kind the subject may read.
-func (p *PEP) searchReadable(ctx context.Context, subject authzen.Subject, kind, namespace string) ([]ResourceID, error) {
+// readable is what a caller may read of one kind: everything, whole
+// namespaces, and single rows.
+type readable struct {
+	all        bool
+	namespaces []string
+	ids        []ResourceID
+}
+
+// searchReadable asks the PDP which resources of the kind the subject may
+// read. Besides "<namespace>/<name>" ids, a result may name every row of the
+// kind ("*") or of a namespace ("<namespace>/*"), as a policy that decides by
+// role rather than by row answers.
+func (p *PEP) searchReadable(ctx context.Context, subject authzen.Subject, kind, namespace string) (readable, error) {
 	typ := resourceType(kind)
 	results, err := p.client.SearchResources(ctx, authzen.ResourceSearchRequest{
 		Subject:  subject,
@@ -92,26 +106,34 @@ func (p *PEP) searchReadable(ctx context.Context, subject authzen.Subject, kind,
 	}, p.searchMax)
 	if err != nil {
 		p.logError(ctx, subject, ActionRead, authzen.Resource{Type: typ}, err)
-		return nil, unavailable(err)
+		return readable{}, unavailable(err)
 	}
-	ids := make([]ResourceID, 0, len(results))
-	for _, r := range results {
-		if r.Type != "" && r.Type != typ {
+	var r readable
+	for _, res := range results {
+		if res.Type != "" && res.Type != typ {
 			continue
 		}
-		ns, name, ok := strings.Cut(r.ID, "/")
+		if res.ID == "*" {
+			r.all = true
+			continue
+		}
+		ns, name, ok := strings.Cut(res.ID, "/")
 		if !ok || ns == "" || name == "" {
-			p.log.DebugContext(ctx, "authz ignoring unparseable search result", "resource_type", r.Type, "resource_id", r.ID)
+			p.log.DebugContext(ctx, "authz ignoring unparseable search result", "resource_type", res.Type, "resource_id", res.ID)
 			continue
 		}
 		if namespace != "" && ns != namespace {
 			continue
 		}
-		ids = append(ids, ResourceID{Namespace: ns, Name: name})
+		if name == "*" {
+			r.namespaces = append(r.namespaces, ns)
+			continue
+		}
+		r.ids = append(r.ids, ResourceID{Namespace: ns, Name: name})
 	}
 	p.log.DebugContext(ctx, "authz list via search", "subject_id", subject.ID, "resource_type", typ,
-		"permitted", len(ids), "request_id", authzen.RequestIDFrom(ctx))
-	return ids, nil
+		"all", r.all, "namespaces", len(r.namespaces), "permitted", len(r.ids), "request_id", authzen.RequestIDFrom(ctx))
+	return r, nil
 }
 
 // evaluateReadable checks read on each candidate row with execute_all batches.
@@ -194,22 +216,47 @@ func (p *PEP) readableChunk(ctx context.Context, subject authzen.Subject, kind s
 // The columns exist on both tagged and mutable stores; for tagged kinds
 // every tag of a permitted name matches. An empty set matches nothing.
 func Predicate(ids []ResourceID) (string, []any) {
-	if len(ids) == 0 {
-		return "false", nil
+	return predicateFor(nil, ids)
+}
+
+// predicateFor renders whole namespaces and single rows as one ExtraWhere
+// fragment with bound parameters only. Nothing to match matches nothing.
+func predicateFor(namespaces []string, ids []ResourceID) (string, []any) {
+	namespaces = slices.Compact(slices.Sorted(slices.Values(namespaces)))
+	var parts []string
+	var args []any
+	if len(namespaces) > 0 {
+		args = append(args, namespaces)
+		parts = append(parts, fmt.Sprintf("namespace = ANY($%d::text[])", len(args)))
 	}
-	sorted := slices.Clone(ids)
-	slices.SortFunc(sorted, func(a, b ResourceID) int {
-		if c := strings.Compare(a.Namespace, b.Namespace); c != 0 {
-			return c
-		}
-		return strings.Compare(a.Name, b.Name)
+	// A row in a whole namespace is already covered.
+	ids = slices.DeleteFunc(slices.Clone(ids), func(id ResourceID) bool {
+		_, found := slices.BinarySearch(namespaces, id.Namespace)
+		return found
 	})
-	sorted = slices.Compact(sorted)
-	namespaces := make([]string, len(sorted))
-	names := make([]string, len(sorted))
-	for i, id := range sorted {
-		namespaces[i] = id.Namespace
-		names[i] = id.Name
+	if len(ids) > 0 {
+		sorted := ids
+		slices.SortFunc(sorted, func(a, b ResourceID) int {
+			if c := strings.Compare(a.Namespace, b.Namespace); c != 0 {
+				return c
+			}
+			return strings.Compare(a.Name, b.Name)
+		})
+		sorted = slices.Compact(sorted)
+		nss := make([]string, len(sorted))
+		names := make([]string, len(sorted))
+		for i, id := range sorted {
+			nss[i], names[i] = id.Namespace, id.Name
+		}
+		args = append(args, nss, names)
+		parts = append(parts, fmt.Sprintf("(namespace, name) IN (SELECT * FROM unnest($%d::text[], $%d::text[]))", len(args)-1, len(args)))
 	}
-	return "(namespace, name) IN (SELECT * FROM unnest($1::text[], $2::text[]))", []any{namespaces, names}
+	switch len(parts) {
+	case 0:
+		return "false", nil
+	case 1:
+		return parts[0], args
+	default:
+		return "(" + strings.Join(parts, " OR ") + ")", args
+	}
 }

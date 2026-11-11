@@ -102,6 +102,14 @@ type Config struct {
 	AuthUIIssuer   string `env:"AUTH_UI_ISSUER" envDefault:""`
 	AuthUIClientID string `env:"AUTH_UI_CLIENT_ID" envDefault:""`
 	AuthUIScopes   string `env:"AUTH_UI_SCOPES" envDefault:"openid profile email"`
+	// AuthMCPResource is the public URL of the MCP endpoint (for example
+	// https://registry.example.com/mcp). When set with auth required, the MCP
+	// server publishes RFC 9728 protected-resource metadata naming the
+	// configured issuers, and its 401 challenges point to it, so MCP clients
+	// can discover where to get a token.
+	AuthMCPResource string `env:"AUTH_MCP_RESOURCE" envDefault:""`
+	// AuthMCPScopes are advertised as scopes_supported in that metadata.
+	AuthMCPScopes []string `env:"AUTH_MCP_SCOPES" envSeparator:"," envDefault:""`
 
 	// Authorization (OpenID AuthZEN 1.0 PDP)
 	//

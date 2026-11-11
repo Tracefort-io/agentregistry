@@ -46,9 +46,15 @@ func validateAuth(cfg *Config) error {
 	if (cfg.AuthUIIssuer == "") != (cfg.AuthUIClientID == "") {
 		return fmt.Errorf("set both AUTH_UI_ISSUER and AUTH_UI_CLIENT_ID, or neither")
 	}
-	if cfg.AuthUIIssuer != "" {
-		if u, err := url.Parse(cfg.AuthUIIssuer); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return fmt.Errorf("AUTH_UI_ISSUER must be an absolute http(s) URL")
+	if cfg.AuthUIIssuer != "" && !isHTTPURL(cfg.AuthUIIssuer) {
+		return fmt.Errorf("AUTH_UI_ISSUER must be an absolute http(s) URL")
+	}
+	if cfg.AuthMCPResource != "" {
+		if !isHTTPURL(cfg.AuthMCPResource) {
+			return fmt.Errorf("AUTH_MCP_RESOURCE must be an absolute http(s) URL")
+		}
+		if u, _ := url.Parse(cfg.AuthMCPResource); u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("AUTH_MCP_RESOURCE must not have a query or fragment")
 		}
 	}
 	if cfg.AuthClockSkew < 0 {
@@ -72,4 +78,10 @@ func validateAuth(cfg *Config) error {
 		return fmt.Errorf("AUTHZEN_TOKEN_URL requires AUTHZEN_CLIENT_ID and AUTHZEN_CLIENT_SECRET(_FILE)")
 	}
 	return nil
+}
+
+// isHTTPURL reports whether s is an absolute http(s) URL with a host.
+func isHTTPURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
 }

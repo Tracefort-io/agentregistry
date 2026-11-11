@@ -66,3 +66,21 @@ test_empty_subject_id_is_denied if {
 	subject := {"type": "user", "id": "", "properties": {"roles": ["registry-admin"]}}
 	not authzen.allow with input as req(subject, "read", agent)
 }
+
+search(subject, action, type) := {"subject": subject, "action": {"name": action}, "resource": {"type": type}}
+
+test_search_reader_reads_every_agent if {
+	authzen.search_resource == {{"type": "agent", "id": "*"}} with input as search(user(["registry-reader"]), "read", "agent")
+}
+
+test_search_reader_reads_no_secrets if {
+	count(authzen.search_resource) == 0 with input as search(user(["registry-reader"]), "read", "secret")
+}
+
+test_search_without_role_finds_nothing if {
+	count(authzen.search_resource) == 0 with input as search(user([]), "read", "agent")
+}
+
+test_search_unknown_type_finds_nothing if {
+	count(authzen.search_resource) == 0 with input as search(user(["registry-writer"]), "read", "something-else")
+}

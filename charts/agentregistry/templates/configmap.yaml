@@ -14,3 +14,33 @@ data:
   AGENT_REGISTRY_SERVER_ADDRESS: {{ .Values.config.serverAddress | quote }}
   AGENT_REGISTRY_MCP_PORT: {{ .Values.config.agentRegistryMcpPort | quote }}
   AGENT_REGISTRY_ENABLE_REGISTRY_VALIDATION: {{ .Values.config.enableRegistryValidation | quote }}
+  {{- with .Values.auth }}
+  AGENT_REGISTRY_AUTH_MODE: {{ .mode | quote }}
+  {{- if eq .mode "required" }}
+  AGENT_REGISTRY_AUTH_ISSUERS: {{ .issuers | toJson | quote }}
+  AGENT_REGISTRY_AUTH_CLOCK_SKEW: {{ .clockSkew | quote }}
+  AGENT_REGISTRY_AUTH_OPEN_PATHS: {{ join "," .openPaths | quote }}
+  AGENT_REGISTRY_AUTHZEN_URL: {{ .authzen.url | quote }}
+  AGENT_REGISTRY_AUTHZEN_TIMEOUT: {{ .authzen.timeout | quote }}
+  AGENT_REGISTRY_AUTHZEN_CACHE_TTL: {{ .authzen.cacheTTL | quote }}
+  AGENT_REGISTRY_AUTHZEN_LIST_MAX: {{ .authzen.listMax | quote }}
+  {{- if .authzen.tokenUrl }}
+  AGENT_REGISTRY_AUTHZEN_TOKEN_URL: {{ .authzen.tokenUrl | quote }}
+  AGENT_REGISTRY_AUTHZEN_CLIENT_ID: {{ .authzen.clientId | quote }}
+  {{- with .authzen.scopes }}
+  AGENT_REGISTRY_AUTHZEN_SCOPES: {{ join "," . | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if .ui.clientId }}
+  AGENT_REGISTRY_AUTH_UI_ISSUER: {{ .ui.issuer | quote }}
+  AGENT_REGISTRY_AUTH_UI_CLIENT_ID: {{ .ui.clientId | quote }}
+  AGENT_REGISTRY_AUTH_UI_SCOPES: {{ .ui.scopes | quote }}
+  {{- end }}
+  {{- if .mcp.resource }}
+  AGENT_REGISTRY_AUTH_MCP_RESOURCE: {{ .mcp.resource | quote }}
+  {{- with .mcp.scopes }}
+  AGENT_REGISTRY_AUTH_MCP_SCOPES: {{ join "," . | quote }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- end }}

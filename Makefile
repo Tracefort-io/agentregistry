@@ -217,6 +217,23 @@ test: ## Run Go integration tests (requires Postgres; see run-docker)
 	@echo "Running Go tests with integration..."
 	$(GOTESTSUM) --format testdox -- -tags=integration -timeout 10m ./...
 
+# Check the AuthZEN client against the OpenID AuthZEN JSON Schemas. They are
+# not copied into this repository (OpenID Foundation IPR policy): the schema
+# files are fetched at a pinned commit into a git-ignored directory.
+AUTHZEN_SPEC_REF ?= 6ed00bad5daa8f6eef6f2aef1f124442beeb8382
+AUTHZEN_SPEC_DIR := .authzen-spec
+
+.PHONY: test-authzen-contract
+test-authzen-contract: ## Check the AuthZEN client against the AuthZEN JSON Schemas (fetches them)
+	@if [ ! -d $(AUTHZEN_SPEC_DIR)/.git ]; then \
+		git init -q $(AUTHZEN_SPEC_DIR) && \
+		git -C $(AUTHZEN_SPEC_DIR) remote add origin https://github.com/openid/authzen.git; \
+	fi
+	git -C $(AUTHZEN_SPEC_DIR) fetch -q --depth 1 --filter=blob:none origin $(AUTHZEN_SPEC_REF)
+	git -C $(AUTHZEN_SPEC_DIR) -c advice.detachedHead=false checkout -q FETCH_HEAD -- api/schemas
+	AUTHZEN_SCHEMA_DIR=$(abspath $(AUTHZEN_SPEC_DIR))/api/schemas \
+		go test -count=1 -run 'TestSpecSchema' -v ./pkg/registry/authzen/
+
 # Run CLI e2e tests: build the arctl binary and exercise it as a subprocess.
 # The no-DB cases (missing-DSN, --db-url precedence, --help, arg validation)
 # run on every invocation; the DB-required cases (happy path, ErrNotReversible,

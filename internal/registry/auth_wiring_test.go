@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -133,6 +134,63 @@ func TestApplyHooksAnswersMe(t *testing.T) {
 	got, err := options.Permissions(context.Background(), "default")
 	require.NoError(t, err)
 	assert.True(t, got.Admin, "a Permissions func from AppOptions wins")
+}
+
+func TestMCPResourceMetadata(t *testing.T) {
+	stores := map[string]*v1alpha1store.Store{v1alpha1.KindAgent: {}}
+
+	t.Run("published for the configured issuers", func(t *testing.T) {
+		cfg := requiredAuthConfig()
+		cfg.AuthMCPResource = "https://registry.example.com/mcp"
+		cfg.AuthMCPScopes = []string{"registry.read"}
+		w, err := buildAuth(context.Background(), cfg, types.AppOptions{})
+		require.NoError(t, err)
+
+		options := types.AppOptions{}
+		require.NoError(t, w.applyHooks(&options, stores))
+		require.NotNil(t, options.MCPProtectedResourceMetadata)
+		meta := *options.MCPProtectedResourceMetadata
+		assert.Equal(t, "https://registry.example.com/mcp", meta.Resource)
+		assert.Equal(t, []string{"https://idp.example.com/realms/tracefort"}, meta.AuthorizationServers)
+		assert.Equal(t, []string{"header"}, meta.BearerMethodsSupported)
+		assert.Equal(t, []string{"registry.read"}, meta.ScopesSupported)
+		// RFC 9728: the well-known path goes between the host and the resource's path.
+		assert.Equal(t, "https://registry.example.com/.well-known/oauth-protected-resource/mcp", options.MCPResourceMetadataURL)
+	})
+
+	t.Run("resource at the root", func(t *testing.T) {
+		assert.Equal(t, "https://mcp.example.com/.well-known/oauth-protected-resource",
+			protectedResourceMetadataURL("https://mcp.example.com/"))
+	})
+
+	t.Run("not published without a resource URL", func(t *testing.T) {
+		w, err := buildAuth(context.Background(), requiredAuthConfig(), types.AppOptions{})
+		require.NoError(t, err)
+		options := types.AppOptions{}
+		require.NoError(t, w.applyHooks(&options, stores))
+		assert.Nil(t, options.MCPProtectedResourceMetadata)
+		assert.Empty(t, options.MCPResourceMetadataURL)
+	})
+
+	t.Run("metadata from AppOptions wins", func(t *testing.T) {
+		cfg := requiredAuthConfig()
+		cfg.AuthMCPResource = "https://registry.example.com/mcp"
+		w, err := buildAuth(context.Background(), cfg, types.AppOptions{})
+		require.NoError(t, err)
+		own := &oauthex.ProtectedResourceMetadata{Resource: "https://own.example/mcp"}
+		options := types.AppOptions{MCPProtectedResourceMetadata: own, MCPResourceMetadataURL: "https://own.example/meta"}
+		require.NoError(t, w.applyHooks(&options, stores))
+		assert.Same(t, own, options.MCPProtectedResourceMetadata)
+		assert.Equal(t, "https://own.example/meta", options.MCPResourceMetadataURL)
+	})
+
+	t.Run("needs issuers to name", func(t *testing.T) {
+		cfg := requiredAuthConfig()
+		cfg.AuthIssuers = ""
+		cfg.AuthMCPResource = "https://registry.example.com/mcp"
+		_, err := buildAuth(context.Background(), cfg, types.AppOptions{AuthnProvider: stubAuthn{}})
+		require.ErrorContains(t, err, "AUTH_MCP_RESOURCE")
+	})
 }
 
 func TestPDPTokenSource(t *testing.T) {

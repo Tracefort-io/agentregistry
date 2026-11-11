@@ -340,6 +340,33 @@ Called from templates/validate.yaml so it fires during helm template/install.
 {{- $errors = append $errors "database.postgres.external.* is set but ignored because type=bundled. Set type=external to use these fields, or remove them." }}
 {{- end }}
 {{- end }}
+{{- with .Values.auth }}
+{{- if not (has .mode (list "disabled" "required")) }}
+{{- $errors = append $errors (printf "auth.mode must be \"disabled\" or \"required\" (got %q)." .mode) }}
+{{- end }}
+{{- if eq .mode "required" }}
+{{- if not .issuers }}
+{{- $errors = append $errors "auth.mode=required needs at least one entry in auth.issuers." }}
+{{- end }}
+{{- range $i, $iss := .issuers }}
+{{- if or (not $iss.issuer) (not $iss.audiences) }}
+{{- $errors = append $errors (printf "auth.issuers[%d] needs issuer and audiences." $i) }}
+{{- end }}
+{{- end }}
+{{- if not .authzen.url }}
+{{- $errors = append $errors "auth.mode=required needs auth.authzen.url." }}
+{{- end }}
+{{- if and .authzen.tokenUrl .authzen.staticTokenRef.name }}
+{{- $errors = append $errors "auth.authzen.tokenUrl and auth.authzen.staticTokenRef.name are mutually exclusive: set one, not both." }}
+{{- end }}
+{{- if and .authzen.tokenUrl (or (not .authzen.clientId) (not .authzen.clientSecretRef.name)) }}
+{{- $errors = append $errors "auth.authzen.tokenUrl needs auth.authzen.clientId and auth.authzen.clientSecretRef.name." }}
+{{- end }}
+{{- if ne (empty .ui.issuer) (empty .ui.clientId) }}
+{{- $errors = append $errors "set both auth.ui.issuer and auth.ui.clientId, or neither." }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if not (has .Values.secretStore.type (list "Kubernetes" "Database")) }}
 {{- $errors = append $errors (printf "secretStore.type must be \"Kubernetes\" or \"Database\" (got %q)." .Values.secretStore.type) }}
 {{- end }}

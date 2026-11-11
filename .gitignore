@@ -64,3 +64,6 @@ _output/
 
 # Default security scan report folder (make security-scan)
 scans/
+
+# AuthZEN spec files fetched by make test-authzen-contract
+/.authzen-spec/

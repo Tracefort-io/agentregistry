@@ -15,8 +15,7 @@
 # Anonymous callers are allowed nothing. Clients (client-credentials tokens)
 # get exactly what their roles allow.
 #
-# No search_resource rule is defined: this policy knows roles, not rows, so
-# the registry authorizes list candidates with batch evaluations.
+# search_resource (below) answers Resource Search with wildcards.
 package authzen
 
 import rego.v1
@@ -68,4 +67,13 @@ allow if {
 	registry_resource
 	input.resource.type != "secret"
 	input.action.name in reader_actions
+}
+
+# Resource Search (configure the PDP with search.resource: search_resource).
+# Access here depends on the role and the resource type, never on the row, so
+# the answer is "*", every row of the type, when the subject may take the
+# action on it. The registry turns "*" into no filter, and "<namespace>/*"
+# into a namespace filter, so large catalogs list without per-row checks.
+search_resource contains {"type": input.resource.type, "id": "*"} if {
+	allow with input as object.union(input, {"resource": {"type": input.resource.type, "id": "*"}})
 }

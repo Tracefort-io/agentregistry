@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	"github.com/agentregistry-dev/agentregistry/internal/registry/authz"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/config"
@@ -30,6 +33,9 @@ type authWiring struct {
 	// pdp is nil unless AuthMode is "required".
 	pdp     *authzen.Client
 	listMax int
+	// mcpMetadata is published by the MCP server when AUTH_MCP_RESOURCE is set.
+	mcpMetadata    *oauthex.ProtectedResourceMetadata
+	mcpMetadataURL string
 }
 
 // buildAuth resolves the providers before the database opens, which needs the
@@ -40,14 +46,18 @@ func buildAuth(ctx context.Context, cfg *config.Config, options types.AppOptions
 		return w, nil
 	}
 
+	var issuers []jwtauthn.IssuerConfig
+	if cfg.AuthIssuers != "" || cfg.AuthIssuersFile != "" {
+		var err error
+		if issuers, err = jwtauthn.LoadIssuers(cfg.AuthIssuers, cfg.AuthIssuersFile); err != nil {
+			return authWiring{}, fmt.Errorf("load auth issuers: %w", err)
+		}
+	}
+
 	if w.authn == nil {
-		if cfg.AuthIssuers == "" && cfg.AuthIssuersFile == "" {
+		if len(issuers) == 0 {
 			return authWiring{}, fmt.Errorf("auth mode %q requires AUTH_ISSUERS or AUTH_ISSUERS_FILE, or an AuthnProvider in AppOptions",
 				config.AuthModeRequired)
-		}
-		issuers, err := jwtauthn.LoadIssuers(cfg.AuthIssuers, cfg.AuthIssuersFile)
-		if err != nil {
-			return authWiring{}, fmt.Errorf("load auth issuers: %w", err)
 		}
 		provider, err := jwtauthn.NewProvider(ctx, issuers, cfg.AuthClockSkew)
 		if err != nil {
@@ -82,7 +92,33 @@ func buildAuth(ctx context.Context, cfg *config.Config, options types.AppOptions
 		w.authz = pep
 	}
 	authLogger.Info("authzen authorization enabled", "pdp", cfg.AuthzenURL)
+
+	if cfg.AuthMCPResource != "" {
+		if len(issuers) == 0 {
+			return authWiring{}, fmt.Errorf("AUTH_MCP_RESOURCE needs AUTH_ISSUERS (or AUTH_ISSUERS_FILE) to name the authorization servers")
+		}
+		w.mcpMetadata = &oauthex.ProtectedResourceMetadata{
+			Resource:               cfg.AuthMCPResource,
+			AuthorizationServers:   issuerNames(issuers),
+			BearerMethodsSupported: []string{"header"},
+			ScopesSupported:        cfg.AuthMCPScopes,
+			ResourceName:           "agentregistry",
+		}
+		w.mcpMetadataURL = protectedResourceMetadataURL(cfg.AuthMCPResource)
+	}
 	return w, nil
+}
+
+// protectedResourceMetadataURL is where RFC 9728 puts a resource's metadata:
+// the well-known path between the host and the resource's own path.
+func protectedResourceMetadataURL(resource string) string {
+	u, err := url.Parse(resource)
+	if err != nil {
+		return ""
+	}
+	u.Path = "/.well-known/oauth-protected-resource" + strings.TrimSuffix(u.Path, "/")
+	u.RawPath = ""
+	return u.String()
 }
 
 // applyHooks installs the PEP's per-kind Authorizers and ListFilters into
@@ -113,6 +149,10 @@ func (w authWiring) applyHooks(options *types.AppOptions, stores map[string]*v1a
 	options.ListFilters = mergeHooks(pep.ListFilters(), options.ListFilters)
 	if options.Permissions == nil {
 		options.Permissions = pep.Permissions
+	}
+	if options.MCPProtectedResourceMetadata == nil && w.mcpMetadata != nil {
+		options.MCPProtectedResourceMetadata = w.mcpMetadata
+		options.MCPResourceMetadataURL = w.mcpMetadataURL
 	}
 	return nil
 }

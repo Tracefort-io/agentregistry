@@ -68,6 +68,21 @@ func TestPredicate_Postgres(t *testing.T) {
 	assert.Equal(t, []string{"team/k8s"},
 		list(runtimes, "", []ResourceID{{"team", "k8s"}}))
 
+	// Whole namespaces, alone and with single rows (the ExtraWhere
+	// placeholders are rebased after the store's own).
+	listWith := func(store *v1alpha1store.Store, ns string, namespaces []string, ids []ResourceID) []string {
+		where, args := predicateFor(namespaces, ids)
+		rows, _, err := store.List(ctx, v1alpha1store.ListOpts{Namespace: ns, ExtraWhere: where, ExtraArgs: args})
+		require.NoError(t, err)
+		return keys(rows)
+	}
+	assert.Equal(t, []string{"team/a@v1", "team/a@v2", "team/b@v1", "team/x/y@v1"},
+		listWith(agents, "", []string{"team"}, nil))
+	assert.Equal(t, []string{"other/a@v1", "team/a@v1", "team/a@v2", "team/b@v1", "team/x/y@v1"},
+		listWith(agents, "", []string{"team"}, []ResourceID{{"other", "a"}, {"team", "b"}}))
+	assert.Equal(t, []string{"other/k8s"},
+		listWith(runtimes, "other", []string{"team", "other"}, nil))
+
 	lister := NewStoreLister(stores)
 	ids, err := lister.ListIDs(ctx, v1alpha1.KindAgent, "", 0)
 	require.NoError(t, err)

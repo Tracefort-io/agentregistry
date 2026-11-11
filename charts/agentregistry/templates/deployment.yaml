@@ -157,6 +157,26 @@ spec:
                   name: {{ .Values.secretStore.encryptionKeySecretRef.name }}
                   key: {{ .Values.secretStore.encryptionKeySecretRef.key }}
             {{- end }}
+            {{- if eq .Values.auth.mode "required" }}
+            {{- with .Values.auth.authzen.clientSecretRef }}
+            {{- if .name }}
+            - name: AGENT_REGISTRY_AUTHZEN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name }}
+                  key: {{ .key }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.auth.authzen.staticTokenRef }}
+            {{- if .name }}
+            - name: AGENT_REGISTRY_AUTHZEN_STATIC_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name }}
+                  key: {{ .key }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.extraEnvVars }}
             {{- tpl (toYaml .Values.extraEnvVars) . | nindent 12 }}
             {{- end }}

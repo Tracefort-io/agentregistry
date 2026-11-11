@@ -1,0 +1,206 @@
+suite: Authentication and authorization
+templates:
+  - configmap.yaml
+  - deployment.yaml
+  - postgresql-secret.yaml
+  - validate.yaml
+
+tests:
+  # ── defaults ────────────────────────────────────────────────────────────────
+
+  - it: renders auth disabled by default and nothing else
+    template: configmap.yaml
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_AUTH_MODE
+          value: disabled
+      - notExists:
+          path: data.AGENT_REGISTRY_AUTH_ISSUERS
+      - notExists:
+          path: data.AGENT_REGISTRY_AUTHZEN_URL
+
+  - it: passes validation by default
+    template: validate.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── required: settings in the ConfigMap ─────────────────────────────────────
+
+  - it: renders the auth settings into the ConfigMap
+    template: configmap.yaml
+    set:
+      auth:
+        mode: required
+        issuers:
+          - issuer: http://auth.example/realms/r
+            audiences: [agentregistry]
+        ui: {issuer: http://auth.example/realms/r, clientId: agentregistry-ui}
+        mcp: {resource: https://registry.example/mcp, scopes: [registry.read]}
+        authzen:
+          url: http://pdp:8181
+          tokenUrl: http://auth.example/realms/r/protocol/openid-connect/token
+          clientId: agentregistry
+          scopes: [pdp]
+          clientSecretRef: {name: pdp-client}
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_AUTH_MODE
+          value: required
+      - equal:
+          path: data.AGENT_REGISTRY_AUTH_ISSUERS
+          value: '[{"audiences":["agentregistry"],"issuer":"http://auth.example/realms/r"}]'
+      - equal:
+          path: data.AGENT_REGISTRY_AUTH_OPEN_PATHS
+          value: /health,/ping,/version
+      - equal:
+          path: data.AGENT_REGISTRY_AUTHZEN_URL
+          value: http://pdp:8181
+      - equal:
+          path: data.AGENT_REGISTRY_AUTHZEN_TOKEN_URL
+          value: http://auth.example/realms/r/protocol/openid-connect/token
+      - equal:
+          path: data.AGENT_REGISTRY_AUTHZEN_CLIENT_ID
+          value: agentregistry
+      - equal:
+          path: data.AGENT_REGISTRY_AUTHZEN_SCOPES
+          value: pdp
+      - equal:
+          path: data.AGENT_REGISTRY_AUTH_UI_CLIENT_ID
+          value: agentregistry-ui
+      - equal:
+          path: data.AGENT_REGISTRY_AUTH_MCP_RESOURCE
+          value: https://registry.example/mcp
+      - equal:
+          path: data.AGENT_REGISTRY_AUTH_MCP_SCOPES
+          value: registry.read
+
+  # ── required: credentials only from Secrets ────────────────────────────────
+
+  - it: reads the PDP client secret from a Secret and never puts it in the ConfigMap
+    template: deployment.yaml
+    set:
+      auth:
+        mode: required
+        issuers: [{issuer: http://auth.example/realms/r, audiences: [agentregistry]}]
+        authzen:
+          url: http://pdp:8181
+          tokenUrl: http://auth.example/token
+          clientId: agentregistry
+          clientSecretRef: {name: pdp-client, key: secret}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AGENT_REGISTRY_AUTHZEN_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: pdp-client
+                key: secret
+
+  - it: reads a static PDP token from a Secret
+    template: deployment.yaml
+    set:
+      auth:
+        mode: required
+        issuers: [{issuer: http://auth.example/realms/r, audiences: [agentregistry]}]
+        authzen: {url: http://pdp:8181, staticTokenRef: {name: pdp-token}}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AGENT_REGISTRY_AUTHZEN_STATIC_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: pdp-token
+                key: token
+
+  - it: adds no credential env vars when auth is disabled
+    template: deployment.yaml
+    set:
+      auth.authzen.staticTokenRef.name: pdp-token
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: AGENT_REGISTRY_AUTHZEN_STATIC_TOKEN
+
+  # ── validation ──────────────────────────────────────────────────────────────
+
+  - it: fails on an unknown mode
+    template: validate.yaml
+    set:
+      auth.mode: optional
+    asserts:
+      - failedTemplate:
+          errorPattern: 'auth.mode must be "disabled" or "required"'
+
+  - it: fails when required without issuers or a PDP
+    template: validate.yaml
+    set:
+      auth.mode: required
+    asserts:
+      - failedTemplate:
+          errorPattern: "auth.mode=required needs at least one entry in auth.issuers"
+
+  - it: fails on an issuer without audiences
+    template: validate.yaml
+    set:
+      auth:
+        mode: required
+        issuers: [{issuer: http://auth.example/realms/r}]
+        authzen: {url: http://pdp:8181}
+    asserts:
+      - failedTemplate:
+          errorPattern: "auth.issuers\\[0\\] needs issuer and audiences"
+
+  - it: fails when both OAuth and a static token are set
+    template: validate.yaml
+    set:
+      auth:
+        mode: required
+        issuers: [{issuer: http://auth.example/realms/r, audiences: [agentregistry]}]
+        authzen:
+          url: http://pdp:8181
+          tokenUrl: http://auth.example/token
+          clientId: agentregistry
+          clientSecretRef: {name: pdp-client}
+          staticTokenRef: {name: pdp-token}
+    asserts:
+      - failedTemplate:
+          errorPattern: "mutually exclusive"
+
+  - it: fails when OAuth has no client secret
+    template: validate.yaml
+    set:
+      auth:
+        mode: required
+        issuers: [{issuer: http://auth.example/realms/r, audiences: [agentregistry]}]
+        authzen: {url: http://pdp:8181, tokenUrl: http://auth.example/token, clientId: agentregistry}
+    asserts:
+      - failedTemplate:
+          errorPattern: "auth.authzen.tokenUrl needs auth.authzen.clientId and auth.authzen.clientSecretRef.name"
+
+  - it: fails on half a UI sign-in config
+    template: validate.yaml
+    set:
+      auth:
+        mode: required
+        issuers: [{issuer: http://auth.example/realms/r, audiences: [agentregistry]}]
+        authzen: {url: http://pdp:8181}
+        ui: {clientId: agentregistry-ui}
+    asserts:
+      - failedTemplate:
+          errorPattern: "set both auth.ui.issuer and auth.ui.clientId, or neither"
+
+  - it: passes a complete required config
+    template: validate.yaml
+    set:
+      auth:
+        mode: required
+        issuers: [{issuer: http://auth.example/realms/r, audiences: [agentregistry]}]
+        authzen: {url: http://pdp:8181, staticTokenRef: {name: pdp-token}}
+    asserts:
+      - hasDocuments:
+          count: 0

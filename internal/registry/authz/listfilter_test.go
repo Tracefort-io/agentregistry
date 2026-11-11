@@ -278,3 +278,67 @@ func TestPredicate(t *testing.T) {
 		})
 	}
 }
+
+// A policy that decides by role, not by row, answers Resource Search with
+// wildcards: "*" for every row of the kind, "<namespace>/*" for every row in
+// a namespace. They become a namespace condition, or no filter at all.
+func TestListFilter_SearchWildcards(t *testing.T) {
+	const nsPredicate = "namespace = ANY($1::text[])"
+	const both = "(namespace = ANY($1::text[]) OR (namespace, name) IN (SELECT * FROM unnest($2::text[], $3::text[])))"
+	tests := []struct {
+		name      string
+		namespace string
+		results   []authzen.Resource
+		wantWhere string
+		wantArgs  []any
+	}{
+		{
+			name:      "everything",
+			results:   []authzen.Resource{{Type: "agent", ID: "*"}, {Type: "agent", ID: "team/a"}},
+			wantWhere: "",
+		},
+		{
+			name:      "whole namespaces",
+			results:   []authzen.Resource{{Type: "agent", ID: "team/*"}, {Type: "agent", ID: "ops/*"}, {Type: "agent", ID: "team/*"}},
+			wantWhere: nsPredicate,
+			wantArgs:  []any{[]string{"ops", "team"}},
+		},
+		{
+			name:      "namespaces and single rows",
+			results:   []authzen.Resource{{Type: "agent", ID: "team/*"}, {Type: "agent", ID: "ops/a"}, {Type: "agent", ID: "team/b"}},
+			wantWhere: both,
+			wantArgs:  []any{[]string{"team"}, []string{"ops"}, []string{"a"}},
+		},
+		{
+			name:      "namespace-scoped list keeps its own namespace",
+			namespace: "team",
+			results:   []authzen.Resource{{Type: "agent", ID: "ops/*"}, {Type: "agent", ID: "team/*"}},
+			wantWhere: nsPredicate,
+			wantArgs:  []any{[]string{"team"}},
+		},
+		{
+			name:      "wildcards for another type are ignored",
+			results:   []authzen.Resource{{Type: "skill", ID: "*"}, {Type: "skill", ID: "team/*"}},
+			wantWhere: "false",
+		},
+		{
+			name:      "a wildcard is only a whole segment",
+			results:   []authzen.Resource{{Type: "agent", ID: "team/a*"}, {Type: "agent", ID: "*/a"}},
+			wantWhere: wantPredicate,
+			wantArgs:  []any{[]string{"*", "team"}, []string{"a", "a*"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pdp := newMockPDP(nil)
+			pdp.search = true
+			pdp.results = tt.results
+			p := newPEP(t, pdp, nil)
+
+			where, args, err := p.ListFilter(userCtx(alice()), listIn(tt.namespace))
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantWhere, where)
+			assert.Equal(t, tt.wantArgs, args)
+		})
+	}
+}

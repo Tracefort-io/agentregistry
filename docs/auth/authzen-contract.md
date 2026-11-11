@@ -84,8 +84,18 @@ All must permit, so a Deployment cannot run with, or bind to, a resource its aut
    - if the PDP advertises Resource Search, with `search/resource` calls for `action: read`, `resource: {"type": "<kind>"}`, following every page;
    - otherwise with `evaluations` batches of 100 over the candidate rows, up to 4 batches at a time.
 
-   Either way at most `AUTHZEN_LIST_MAX` rows are authorized. More results or candidates than that fails the request with `503`.
-3. The permitted `<namespace>/<name>` ids become a parameterized SQL condition on the list query, so rows the caller may not read are never returned.
+   Either way at most `AUTHZEN_LIST_MAX` results or candidates are authorized. More than that fails the request with `503`.
+3. The permitted rows become a parameterized SQL condition on the list query, so rows the caller may not read are never returned.
+
+Resource Search results may name more than one row, for policies that decide by role rather than by row:
+
+| Result `id` | Means | Becomes |
+| --- | --- | --- |
+| `<namespace>/<name>` | That row (every tag of it) | `(namespace, name)` match |
+| `<namespace>/*` | Every row of the kind in the namespace | `namespace` match |
+| `*` | Every row of the kind | No filter |
+
+Results of another type are ignored, and so are namespaces outside a namespace-scoped list. Such a policy answers in a single result, so large catalogs list without per-row checks; [authzen/registry.rego](authzen/registry.rego) has a `search_resource` rule that does this.
 
 ## Permissions (`GET /v0/me`)
 

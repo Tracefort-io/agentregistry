@@ -48,6 +48,58 @@ config:
   # -- Enable input validation on the registry API
   enableRegistryValidation: "false"
 
+# @section Authentication and authorization
+
+# -- Authentication (JWT) and authorization (an OpenID AuthZEN 1.0 PDP). Settings
+# are rendered into the ConfigMap; credentials come only from existing Secrets.
+# See docs/auth/authzen-contract.md.
+auth:
+  # -- "disabled" (no authentication) or "required". With "required" the server
+  # refuses to start unless issuers and authzen.url are set.
+  mode: disabled
+  # -- Trusted token issuers. Each entry: issuer, audiences, and optionally
+  # jwksUri, algorithms, rolesClaim, groupsClaim, usernameClaim, clientIdClaim,
+  # clientSubjectClaim.
+  issuers: []
+  # -- Leeway for token exp, nbf and iat.
+  clockSkew: 30s
+  # -- Exact paths served without a token (each also under /v0).
+  openPaths:
+    - /health
+    - /ping
+    - /version
+  # -- Web UI sign-in (authorization code + PKCE). Set both issuer and clientId, or neither.
+  ui:
+    issuer: ""
+    clientId: ""
+    scopes: openid profile email
+  # -- Publish RFC 9728 protected-resource metadata for the MCP endpoint.
+  mcp:
+    # -- Public URL of the MCP endpoint. Empty publishes no metadata.
+    resource: ""
+    scopes: []
+  authzen:
+    # -- PDP base URL; endpoints are discovered from <url>/.well-known/authzen-configuration.
+    url: ""
+    # -- Bound on every PDP call; a timeout is a denial.
+    timeout: 1500ms
+    # -- How long permit decisions are cached. 0 disables caching.
+    cacheTTL: 5s
+    # -- Maximum rows a list request authorizes.
+    listMax: 1000
+    # -- OAuth 2.0 client credentials for calling the PDP: token endpoint, client
+    # ID, scopes, and the Secret holding the client secret.
+    tokenUrl: ""
+    clientId: ""
+    scopes: []
+    clientSecretRef:
+      name: ""
+      key: client-secret
+    # -- Or a static bearer token for PDPs without OAuth, from a Secret.
+    staticTokenRef:
+      name: ""
+      key: token
+
 # @section Secret store
 
 # -- Backend used to persist Secret resource payloads.

@@ -4,11 +4,19 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
 import { useState, useSyncExternalStore } from "react"
-import { LogOut, Menu, Moon, Rocket, Sun, UserRound } from "lucide-react"
+import { Cpu, KeyRound, LogOut, Menu, Moon, Puzzle, Rocket, Server, Sun, UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { CATALOG_SECTIONS, useCatalogNav } from "@/lib/catalog-nav"
 import { useAuth } from "@/lib/auth"
+
+// Platform resources, managed on their own pages.
+const PLATFORM_LINKS = [
+  { href: "/runtimes", label: "Runtimes", icon: <Server className="h-3.5 w-3.5" /> },
+  { href: "/models", label: "Models", icon: <Cpu className="h-3.5 w-3.5" /> },
+  { href: "/plugins", label: "Plugins", icon: <Puzzle className="h-3.5 w-3.5" /> },
+  { href: "/secrets", label: "Secrets", icon: <KeyRound className="h-3.5 w-3.5" /> },
+]
 
 const itemClass = (active: boolean) =>
   `group flex items-center gap-2.5 rounded-md px-3 py-2 text-[15px] font-medium transition-colors ${
@@ -73,6 +81,21 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           </span>
           Deployed
         </Link>
+
+        <div>
+          <p className="px-3 pb-2 text-xs font-semibold text-muted-foreground">Platform</p>
+          <div className="space-y-0.5">
+            {PLATFORM_LINKS.map(({ href, label, icon }) => {
+              const active = pathname.startsWith(href)
+              return (
+                <Link key={href} href={href} onClick={onNavigate} className={itemClass(active)}>
+                  <span className={iconClass(active)}>{icon}</span>
+                  {label}
+                </Link>
+              )
+            })}
+          </div>
+        </div>
       </nav>
 
       <div className="border-t px-2 py-3 space-y-1">

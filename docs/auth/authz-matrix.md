@@ -1,6 +1,28 @@
 # AuthZ Matrix
 
-Permissions listed are what the configured `AuthzProvider` is called with. The OSS public provider allows everything; the matrix describes what a non-public provider evaluates.
+Who may do what, per endpoint. The default build enforces nothing (the public provider allows everything). With `AGENT_REGISTRY_AUTH_MODE=required` the registry asks an AuthZEN PDP, as in the first section; integrators who supply their own `AuthzProvider` are called with the permissions in the sections after it.
+
+## With `AGENT_REGISTRY_AUTH_MODE=required` (AuthZEN)
+
+The built-in mode authenticates JWTs from the configured issuers and asks an AuthZEN 1.0 PDP through the per-kind `Authorizers` and `ListFilters`. It sends these requests; [authzen-contract.md](authzen-contract.md) has the full shapes.
+
+| Operation | HTTP | AuthZEN action on resource | Denied |
+| --- | --- | --- | --- |
+| List a kind | `GET /v0/{plural}` | `list` on `{kind}` `<ns>/*` (or `*`), then `read` per row (or Resource Search) | `403`; rows not readable are left out |
+| Get | `GET /v0/{plural}/{name}[/{tag}]` | `read` on `{kind}` `<ns>/<name>` | `404` |
+| Apply | `PUT /v0/{plural}/{name}`, `POST /v0/apply` | `apply` on `{kind}` `<ns>/<name>` | `403` (batch: per-document `failed`) |
+| Delete | `DELETE /v0/{plural}/{name}[/{tag}]`, `DELETE /v0/apply` | `delete` on `{kind}` `<ns>/<name>` | `403` |
+| Apply a Deployment | `PUT /v0/deployments/{name}`, `POST /v0/apply` | `deploy` on the target, `read` on the Runtime, `apply` on the Deployment, `read` on its Model and every `deploymentRefs` entry | `403` |
+| Deployment logs | `GET /v0/deployments/{name}/logs` | `read` on `deployment` `<ns>/<name>` | `404` |
+| Caller's permissions | `GET /v0/me` | `admin` on `registry`, and every kind's actions on `<ns>/*` | needs a token |
+
+A PDP that cannot answer in time is a `503`, and counts as a denial. Internal reconciliation runs as a system session and does not ask the PDP.
+
+Open without a token: the exact paths in `AGENT_REGISTRY_AUTH_OPEN_PATHS` (default `/health`, `/ping`, `/version`, each also under `/v0`), `/auth-config.json` (the web UI's sign-in settings), and the web UI's static files. `/docs`, the OpenAPI documents, `/metrics` and `/logging` need a token.
+
+The rest of this page describes the `AuthzProvider` permissions for integrators who supply their own provider.
+
+## `AuthzProvider` permissions
 
 Resource types recognized by the authz system: `agent`, `server` (MCP server), `plugin`, `skill`, `prompt`, `provider`, `runtime`, `model`. **There is no `deployment` resource type**: deployment endpoints authorize against the underlying MCP server or agent the deployment references.
 
@@ -69,6 +91,8 @@ Agent deployments additionally invoke `Read` on each referenced `plugin:{ref}`, 
 
 ## Public
 
+Without `AGENT_REGISTRY_AUTH_MODE=required`:
+
 | Operation | HTTP |
 | --- | --- |
 | Health | `GET /v0/health` |
@@ -77,6 +101,7 @@ Agent deployments additionally invoke `Read` on each referenced `plugin:{ref}`, 
 | Docs | `GET /docs` |
 | Metrics | `GET /metrics` |
 | Logging | `/logging` (localhost-only) |
+| Web UI sign-in settings | `GET /auth-config.json` |
 
 ## MCP Registry v0.1 compatibility (read-only)
 
