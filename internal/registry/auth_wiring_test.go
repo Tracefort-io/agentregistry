@@ -30,12 +30,13 @@ func (stubAuthn) Authenticate(context.Context, func(string) string, url.Values) 
 
 func requiredAuthConfig() *config.Config {
 	return &config.Config{
-		AuthMode:       config.AuthModeRequired,
-		AuthIssuers:    `[{"issuer":"https://idp.example.com/realms/tracefort","audiences":["agentregistry"],"jwksUri":"https://idp.example.com/realms/tracefort/protocol/openid-connect/certs"}]`,
-		AuthClockSkew:  30 * time.Second,
-		AuthzenURL:     "https://pdp.example.com",
-		AuthzenTimeout: time.Second,
-		AuthzenListMax: 100,
+		AuthMode:        config.AuthModeRequired,
+		AuthIssuers:     `[{"issuer":"https://idp.example.com/realms/tracefort","audiences":["agentregistry"],"jwksUri":"https://idp.example.com/realms/tracefort/protocol/openid-connect/certs"}]`,
+		AuthClockSkew:   30 * time.Second,
+		AuthJWKSRefresh: 5 * time.Minute,
+		AuthzenURL:      "https://pdp.example.com",
+		AuthzenTimeout:  time.Second,
+		AuthzenListMax:  100,
 	}
 }
 
@@ -126,7 +127,7 @@ func TestApplyHooksAnswersMe(t *testing.T) {
 	require.NoError(t, w.applyHooks(&options, stores))
 	require.NotNil(t, options.Permissions, "the PEP answers /v0/me")
 	_, err = options.Permissions(context.Background(), "default")
-	assert.ErrorIs(t, err, auth.ErrUnauthenticated, "the PEP needs a session")
+	require.ErrorIs(t, err, auth.ErrUnauthenticated, "the PEP needs a session")
 
 	custom := func(context.Context, string) (types.Permissions, error) { return types.Permissions{Admin: true}, nil }
 	options = types.AppOptions{Permissions: custom}

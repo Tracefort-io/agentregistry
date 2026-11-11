@@ -2,7 +2,7 @@ package authz
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -125,14 +125,28 @@ func TestAuthorize_StatusMapping(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.Equal(t, tt.wantStatus, StatusOf(err))
-			assert.ErrorIs(t, err, tt.wantIs)
+			require.ErrorIs(t, err, tt.wantIs)
 			if tt.wantStatus == http.StatusUnauthorized {
-				assert.False(t, errors.Is(err, auth.ErrForbidden))
+				assert.NotErrorIs(t, err, auth.ErrForbidden)
 			} else {
-				assert.False(t, errors.Is(err, auth.ErrUnauthenticated))
+				assert.NotErrorIs(t, err, auth.ErrUnauthenticated)
 			}
 		})
 	}
+}
+
+// The batch apply endpoint returns err.Error() to the caller, so a PDP
+// failure must not carry the PDP's address or other internals in it. The
+// cause is logged by the PEP and stays reachable with errors.Is.
+func TestAuthorize_PDPFailureMessageHidesCause(t *testing.T) {
+	cause := fmt.Errorf("%w: POST http://pdp.internal:8181/access/v1/evaluation: connection refused", errPDPDown)
+	pdp := newMockPDP(nil)
+	pdp.err = cause
+	p := newPEP(t, pdp, nil)
+	err := p.Authorize(userCtx(alice()), types.AuthorizeInput{Verb: "apply", Kind: v1alpha1.KindAgent, Namespace: "default", Name: "a"})
+	require.Error(t, err)
+	assert.Equal(t, "authorization service unavailable", err.Error())
+	assert.ErrorIs(t, err, errPDPDown)
 }
 
 func TestAuthorize_PublicSubject(t *testing.T) {

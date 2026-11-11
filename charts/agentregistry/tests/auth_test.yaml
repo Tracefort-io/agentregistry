@@ -54,6 +54,9 @@ tests:
           path: data.AGENT_REGISTRY_AUTH_OPEN_PATHS
           value: /health,/ping,/version
       - equal:
+          path: data.AGENT_REGISTRY_AUTH_JWKS_REFRESH
+          value: 5m
+      - equal:
           path: data.AGENT_REGISTRY_AUTHZEN_URL
           value: http://pdp:8181
       - equal:

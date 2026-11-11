@@ -63,6 +63,9 @@ auth:
   issuers: []
   # -- Leeway for token exp, nbf and iat.
   clockSkew: 30s
+  # -- How often the issuers' signing keys are fetched again: how long a key
+  # removed from the IdP (for example after a leak) is still trusted.
+  jwksRefresh: 5m
   # -- Exact paths served without a token (each also under /v0).
   openPaths:
     - /health

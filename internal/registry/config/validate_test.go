@@ -45,12 +45,13 @@ func TestValidate_Auth(t *testing.T) {
 	// required returns a config that passes validation with auth required.
 	required := func(mutate func(*Config)) *Config {
 		cfg := &Config{
-			AuthMode:       AuthModeRequired,
-			AuthIssuers:    `[{"issuer":"https://idp.example.com","audiences":["agentregistry"]}]`,
-			AuthClockSkew:  30 * time.Second,
-			AuthzenURL:     "https://pdp.example.com",
-			AuthzenTimeout: time.Second,
-			AuthzenListMax: 1000,
+			AuthMode:        AuthModeRequired,
+			AuthIssuers:     `[{"issuer":"https://idp.example.com","audiences":["agentregistry"]}]`,
+			AuthClockSkew:   30 * time.Second,
+			AuthJWKSRefresh: 5 * time.Minute,
+			AuthzenURL:      "https://pdp.example.com",
+			AuthzenTimeout:  time.Second,
+			AuthzenListMax:  1000,
 		}
 		if mutate != nil {
 			mutate(cfg)
@@ -72,6 +73,7 @@ func TestValidate_Auth(t *testing.T) {
 		{"required without issuers", required(func(c *Config) { c.AuthIssuers = "" }), false},
 		{"required without pdp", required(func(c *Config) { c.AuthzenURL = "" }), true},
 		{"negative clock skew", required(func(c *Config) { c.AuthClockSkew = -time.Second }), true},
+		{"jwks refresh under 1s", required(func(c *Config) { c.AuthJWKSRefresh = 500 * time.Millisecond }), true},
 		{"zero pdp timeout", required(func(c *Config) { c.AuthzenTimeout = 0 }), true},
 		{"negative cache ttl", required(func(c *Config) { c.AuthzenCacheTTL = -time.Second }), true},
 		{"zero list max", required(func(c *Config) { c.AuthzenListMax = 0 }), true},

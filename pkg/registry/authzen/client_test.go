@@ -3,7 +3,6 @@ package authzen
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -81,19 +80,28 @@ func (f *fakePDP) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req EvaluationRequest
-		require.NoError(f.t, json.Unmarshal(body, &req))
+		if !assert.NoError(f.t, json.Unmarshal(body, &req)) {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"decision": f.decide(req)})
 	case "/access/v1/evaluations":
 		f.batchCalls.Add(1)
 		var req EvaluationsRequest
-		require.NoError(f.t, json.Unmarshal(body, &req))
+		if !assert.NoError(f.t, json.Unmarshal(body, &req)) {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
 		f.mu.Lock()
 		f.lastBatch = req
 		f.mu.Unlock()
 		out := []map[string]any{}
 		for i := range req.Evaluations {
 			item, err := req.Expand(i)
-			require.NoError(f.t, err)
+			if !assert.NoError(f.t, err) {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
 			d := f.decide(item)
 			out = append(out, map[string]any{"decision": d})
 			if req.Semantic() == DenyOnFirstDeny && !d {
@@ -103,7 +111,10 @@ func (f *fakePDP) serve(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"evaluations": out})
 	case "/access/v1/search/resource":
 		var req ResourceSearchRequest
-		require.NoError(f.t, json.Unmarshal(body, &req))
+		if !assert.NoError(f.t, json.Unmarshal(body, &req)) {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
 		token := ""
 		if req.Page != nil {
 			token = req.Page.Token
@@ -164,8 +175,7 @@ func TestEvaluate(t *testing.T) {
 			})
 			got, err := c.Evaluate(context.Background(), sampleReq("default/a"))
 			if tt.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tt.wantErr)
+				require.ErrorIs(t, err, tt.wantErr)
 				assert.ErrorIs(t, err, ErrUnavailable, "every failure must be ErrUnavailable")
 				if tt.errMatch != "" {
 					assert.Contains(t, err.Error(), tt.errMatch)
@@ -205,7 +215,10 @@ func TestClientCredentialsTokenSource(t *testing.T) {
 	var tokenCalls atomic.Int32
 	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tokenCalls.Add(1)
-		require.NoError(t, r.ParseForm())
+		if !assert.NoError(t, r.ParseForm()) {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
 		assert.Equal(t, "client_credentials", r.Form.Get("grant_type"))
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"access_token":"cc-token","token_type":"Bearer","expires_in":3600}`)
@@ -218,7 +231,7 @@ func TestClientCredentialsTokenSource(t *testing.T) {
 
 	f := newFakePDP(t)
 	c := f.client(t, func(cfg *Config) { cfg.TokenSource = ts })
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, err = c.Evaluate(context.Background(), sampleReq("default/a"))
 		require.NoError(t, err)
 	}
@@ -243,7 +256,7 @@ func TestEvaluate_PermitCache(t *testing.T) {
 	ctx := context.Background()
 
 	// Permit is cached; a different request_id still hits the cache.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		req := sampleReq("default/a")
 		req.Context["request_id"] = string(rune('a' + i))
 		got, err := c.Evaluate(ctx, req)
@@ -260,7 +273,7 @@ func TestEvaluate_PermitCache(t *testing.T) {
 	assert.Equal(t, int32(2), f.evalCalls.Load())
 
 	// Denials are never cached.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		got, err := c.Evaluate(ctx, sampleReq("default/denied"))
 		require.NoError(t, err)
 		require.False(t, got.Decision)
@@ -313,14 +326,12 @@ func TestMetadata_ConcurrentCallersShareDiscovery(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, callers)
 	for range callers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 			defer cancel()
 			_, err := c.Evaluate(ctx, sampleReq("default/a"))
 			errs <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -481,7 +492,7 @@ func TestSearchResources(t *testing.T) {
 	assert.Equal(t, []string{"ns/a", "ns/b", "ns/c", "ns/d"}, ids)
 
 	_, err = c.SearchResources(context.Background(), req, 2)
-	assert.ErrorIs(t, err, ErrTooManyResults)
+	require.ErrorIs(t, err, ErrTooManyResults)
 
 	// A PDP that loops on the same token is an error, not an infinite loop.
 	f.searchPages["p3"] = ResourceSearchResponse{Page: &PageResponse{NextToken: "p2"}}
@@ -492,7 +503,7 @@ func TestSearchResources(t *testing.T) {
 func TestSearchResource_NotSupported(t *testing.T) {
 	f := newFakePDP(t)
 	_, err := f.client(t, nil).SearchResource(context.Background(), ResourceSearchRequest{})
-	assert.True(t, errors.Is(err, ErrSearchNotSupported))
+	assert.ErrorIs(t, err, ErrSearchNotSupported)
 }
 
 func TestResponseSizeLimit(t *testing.T) {

@@ -124,7 +124,7 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for pod assignment (overrides preset if set) |
 | args | list | `[]` | Override default container args (evaluated as a template) |
-| auth | object | `{"authzen":{"cacheTTL":"5s","clientId":"","clientSecretRef":{"key":"client-secret","name":""},"listMax":1000,"scopes":[],"staticTokenRef":{"key":"token","name":""},"timeout":"1500ms","tokenUrl":"","url":""},"clockSkew":"30s","issuers":[],"mcp":{"resource":"","scopes":[]},"mode":"disabled","openPaths":["/health","/ping","/version"],"ui":{"clientId":"","issuer":"","scopes":"openid profile email"}}` | Authentication (JWT) and authorization (an OpenID AuthZEN 1.0 PDP). Settings are rendered into the ConfigMap; credentials come only from existing Secrets. See docs/auth/authzen-contract.md. |
+| auth | object | `{"authzen":{"cacheTTL":"5s","clientId":"","clientSecretRef":{"key":"client-secret","name":""},"listMax":1000,"scopes":[],"staticTokenRef":{"key":"token","name":""},"timeout":"1500ms","tokenUrl":"","url":""},"clockSkew":"30s","issuers":[],"jwksRefresh":"5m","mcp":{"resource":"","scopes":[]},"mode":"disabled","openPaths":["/health","/ping","/version"],"ui":{"clientId":"","issuer":"","scopes":"openid profile email"}}` | Authentication (JWT) and authorization (an OpenID AuthZEN 1.0 PDP). Settings are rendered into the ConfigMap; credentials come only from existing Secrets. See docs/auth/authzen-contract.md. |
 | auth.authzen.cacheTTL | string | `"5s"` | How long permit decisions are cached. 0 disables caching. |
 | auth.authzen.listMax | int | `1000` | Maximum rows a list request authorizes. |
 | auth.authzen.staticTokenRef | object | `{"key":"token","name":""}` | Or a static bearer token for PDPs without OAuth, from a Secret. |
@@ -133,6 +133,7 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 | auth.authzen.url | string | `""` | PDP base URL; endpoints are discovered from <url>/.well-known/authzen-configuration. |
 | auth.clockSkew | string | `"30s"` | Leeway for token exp, nbf and iat. |
 | auth.issuers | list | `[]` | Trusted token issuers. Each entry: issuer, audiences, and optionally jwksUri, algorithms, rolesClaim, groupsClaim, usernameClaim, clientIdClaim, clientSubjectClaim. |
+| auth.jwksRefresh | string | `"5m"` | How often the issuers' signing keys are fetched again: how long a key removed from the IdP (for example after a leak) is still trusted. |
 | auth.mcp | object | `{"resource":"","scopes":[]}` | Publish RFC 9728 protected-resource metadata for the MCP endpoint. |
 | auth.mcp.resource | string | `""` | Public URL of the MCP endpoint. Empty publishes no metadata. |
 | auth.mode | string | `"disabled"` | "disabled" (no authentication) or "required". With "required" the server refuses to start unless issuers and authzen.url are set. |

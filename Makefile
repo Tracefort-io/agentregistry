@@ -234,6 +234,13 @@ test-authzen-contract: ## Check the AuthZEN client against the AuthZEN JSON Sche
 	AUTHZEN_SCHEMA_DIR=$(abspath $(AUTHZEN_SPEC_DIR))/api/schemas \
 		go test -count=1 -run 'TestSpecSchema' -v ./pkg/registry/authzen/
 
+# Check each role's access on a running registry with auth required, against
+# its real IdP and AuthZEN PDP. Configured through AUTH_E2E_* variables; see
+# test/authe2e/README.md.
+.PHONY: test-auth-e2e
+test-auth-e2e: ## Run per-role access tests against a running registry (AUTH_E2E_* env)
+	go test -count=1 -tags=authe2e -v ./test/authe2e/
+
 # Run CLI e2e tests: build the arctl binary and exercise it as a subprocess.
 # The no-DB cases (missing-DSN, --db-url precedence, --help, arg validation)
 # run on every invocation; the DB-required cases (happy path, ErrNotReversible,

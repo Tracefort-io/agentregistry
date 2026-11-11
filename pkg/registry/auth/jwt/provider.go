@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,11 @@ const (
 	// fetches for one issuer, triggered by an unknown key ID or a failed
 	// fetch.
 	DefaultKeyRefreshInterval = 30 * time.Second
+
+	// DefaultKeyCacheTTL is how often each issuer's JWKS is fetched in the
+	// background, whatever its cache headers say. It bounds how long a key
+	// the IdP has removed still verifies tokens.
+	DefaultKeyCacheTTL = 5 * time.Minute
 
 	// maxTokenBytes rejects oversized tokens before any parsing.
 	maxTokenBytes = 16 << 10
@@ -67,6 +73,15 @@ func WithKeyRefreshInterval(d time.Duration) Option {
 	}
 }
 
+// WithKeyCacheTTL sets how often each issuer's JWKS is fetched in the
+// background, and so how long a removed key is still trusted. Defaults to
+// DefaultKeyCacheTTL.
+func WithKeyCacheTTL(d time.Duration) Option {
+	return func(p *Provider) {
+		p.keyTTL = d
+	}
+}
+
 // Provider authenticates bearer JWTs against a fixed set of trusted issuers.
 // It implements auth.AuthnProvider.
 type Provider struct {
@@ -75,6 +90,7 @@ type Provider struct {
 	client     *http.Client
 	now        func() time.Time
 	minRefresh time.Duration
+	keyTTL     time.Duration
 	cache      *jwk.Cache
 }
 
@@ -106,11 +122,17 @@ func NewProvider(ctx context.Context, issuers []IssuerConfig, clockSkew time.Dur
 		client:     &http.Client{Timeout: defaultHTTPTimeout},
 		now:        time.Now,
 		minRefresh: DefaultKeyRefreshInterval,
+		keyTTL:     DefaultKeyCacheTTL,
 	}
 	for _, opt := range opts {
 		opt(p)
 	}
-	p.cache = jwk.NewCache(ctx)
+	if p.keyTTL < time.Second {
+		return nil, errors.New("key cache TTL must be at least 1s")
+	}
+	// The cache looks for due refreshes once per window, so a refresh can be
+	// late by up to a window: a fifth of the TTL keeps that small.
+	p.cache = jwk.NewCache(ctx, jwk.WithRefreshWindow(max(p.keyTTL/5, time.Second)))
 	for i := range issuers {
 		cfg := issuers[i]
 		cfg.Audiences = append([]string(nil), cfg.Audiences...)
@@ -349,7 +371,9 @@ func (p *Provider) register(uri string) error {
 	if p.cache.IsRegistered(uri) {
 		return nil
 	}
-	if err := p.cache.Register(uri, jwk.WithHTTPClient(p.client)); err != nil {
+	// A fixed interval: IdPs send no-cache (jwx then waits 15 minutes) or
+	// long max-ages, either of which keeps a removed key trusted too long.
+	if err := p.cache.Register(uri, jwk.WithHTTPClient(p.client), jwk.WithRefreshInterval(p.keyTTL)); err != nil {
 		return fmt.Errorf("registering jwks uri: %w", err)
 	}
 	return nil
@@ -389,10 +413,8 @@ func (p *Provider) discoverJWKSURI(ctx context.Context, issuer string) (string, 
 
 func intersects(a, b []string) bool {
 	for _, x := range a {
-		for _, y := range b {
-			if x == y {
-				return true
-			}
+		if slices.Contains(b, x) {
+			return true
 		}
 	}
 	return false

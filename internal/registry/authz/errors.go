@@ -61,16 +61,15 @@ func unavailable(cause error) *Error {
 	return newError(http.StatusServiceUnavailable, auth.ErrForbidden, "authorization service unavailable", cause)
 }
 
-// Error returns the detail and, for logs, the cause.
+// Error returns the detail only. Callers such as the batch apply endpoint
+// return it to the client, so it must not carry the cause (the PDP's address,
+// transport errors); the PEP logs the cause, and errors.Is / errors.As still
+// reach it.
 func (e *Error) Error() string {
-	msg := e.Detail
-	if msg == "" {
-		msg = e.Title
+	if e.Detail == "" {
+		return e.Title
 	}
-	if e.cause != nil {
-		return msg + ": " + e.cause.Error()
-	}
-	return msg
+	return e.Detail
 }
 
 // Unwrap exposes the auth sentinel and the cause to errors.Is / errors.As.

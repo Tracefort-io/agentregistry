@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"time"
 )
 
 // Validate performs runtime validations on the loaded configuration.
@@ -59,6 +60,9 @@ func validateAuth(cfg *Config) error {
 	}
 	if cfg.AuthClockSkew < 0 {
 		return fmt.Errorf("auth clock skew must be non-negative")
+	}
+	if cfg.AuthJWKSRefresh < time.Second {
+		return fmt.Errorf("auth JWKS refresh must be at least 1s")
 	}
 	if cfg.AuthzenTimeout <= 0 {
 		return fmt.Errorf("authzen timeout must be positive")

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -160,9 +161,7 @@ func baseClaims(iss string) map[string]any {
 
 func with(claims map[string]any, kv ...any) map[string]any {
 	out := make(map[string]any, len(claims))
-	for k, v := range claims {
-		out[k] = v
-	}
+	maps.Copy(out, claims)
 	for i := 0; i+1 < len(kv); i += 2 {
 		k := kv[i].(string)
 		if kv[i+1] == nil {
@@ -255,7 +254,7 @@ func TestProviderAuthenticate(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				t.Logf("rejected: %v", err)
-				require.True(t, errors.Is(err, auth.ErrUnauthenticated), "error %v must wrap ErrUnauthenticated", err)
+				require.ErrorIs(t, err, auth.ErrUnauthenticated, "error %v must wrap ErrUnauthenticated", err)
 				require.Nil(t, sess)
 				return
 			}
@@ -315,6 +314,32 @@ func TestProviderKeyRotation(t *testing.T) {
 	_, err = authenticate(p, "Bearer "+thirdKey.sign(t, claims), nil)
 	require.NoError(t, err)
 	require.EqualValues(t, 3, server.jwksHits.Load())
+}
+
+// A key the IdP stops publishing, for example one that leaked, must stop
+// verifying tokens once the key cache expires, however long the IdP's
+// cache headers allow.
+func TestProviderRemovedKeyExpires(t *testing.T) {
+	oldKey := newRSAKey(t, "old")
+	newKey := newRSAKey(t, "new")
+	server := newIDP(t, oldKey.public)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	p, err := NewProvider(ctx, []IssuerConfig{{
+		Issuer: server.issuer(), Audiences: []string{testAudience}, JWKSURI: server.jwksURI(),
+	}}, 0, WithClock(func() time.Time { return testNow }), WithKeyCacheTTL(time.Second))
+	require.NoError(t, err)
+	claims := baseClaims(server.issuer())
+	token := "Bearer " + oldKey.sign(t, claims)
+
+	_, err = authenticate(p, token, nil)
+	require.NoError(t, err)
+
+	server.setKeys(newKey.public)
+	require.Eventually(t, func() bool {
+		_, err := authenticate(p, token, nil)
+		return errors.Is(err, auth.ErrUnauthenticated)
+	}, 10*time.Second, 100*time.Millisecond, "a removed key is still trusted")
 }
 
 func TestProviderDiscovery(t *testing.T) {
@@ -463,19 +488,22 @@ func TestNewProviderValidation(t *testing.T) {
 		name    string
 		issuers []IssuerConfig
 		skew    time.Duration
+		opts    []Option
 	}{
-		{"no issuers", nil, 0},
-		{"negative skew", []IssuerConfig{{Issuer: "https://idp.example", Audiences: []string{"a"}}}, -time.Second},
-		{"no audience", []IssuerConfig{{Issuer: "https://idp.example"}}, 0},
-		{"HS256", []IssuerConfig{{Issuer: "https://idp.example", Audiences: []string{"a"}, Algorithms: []string{"HS256"}}}, 0},
+		{"no issuers", nil, 0, nil},
+		{"negative skew", []IssuerConfig{{Issuer: "https://idp.example", Audiences: []string{"a"}}}, -time.Second, nil},
+		{"no audience", []IssuerConfig{{Issuer: "https://idp.example"}}, 0, nil},
+		{"HS256", []IssuerConfig{{Issuer: "https://idp.example", Audiences: []string{"a"}, Algorithms: []string{"HS256"}}}, 0, nil},
 		{"duplicate", []IssuerConfig{
 			{Issuer: "https://idp.example", Audiences: []string{"a"}},
 			{Issuer: "https://idp.example", Audiences: []string{"b"}},
-		}, 0},
+		}, 0, nil},
+		{"key cache TTL under 1s", []IssuerConfig{{Issuer: "https://idp.example", Audiences: []string{"a"}}}, 0,
+			[]Option{WithKeyCacheTTL(500 * time.Millisecond)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewProvider(context.Background(), tt.issuers, tt.skew)
+			_, err := NewProvider(context.Background(), tt.issuers, tt.skew, tt.opts...)
 			require.Error(t, err)
 		})
 	}

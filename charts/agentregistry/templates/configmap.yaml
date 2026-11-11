@@ -19,6 +19,7 @@ data:
   {{- if eq .mode "required" }}
   AGENT_REGISTRY_AUTH_ISSUERS: {{ .issuers | toJson | quote }}
   AGENT_REGISTRY_AUTH_CLOCK_SKEW: {{ .clockSkew | quote }}
+  AGENT_REGISTRY_AUTH_JWKS_REFRESH: {{ .jwksRefresh | quote }}
   AGENT_REGISTRY_AUTH_OPEN_PATHS: {{ join "," .openPaths | quote }}
   AGENT_REGISTRY_AUTHZEN_URL: {{ .authzen.url | quote }}
   AGENT_REGISTRY_AUTHZEN_TIMEOUT: {{ .authzen.timeout | quote }}

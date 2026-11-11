@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -96,7 +96,7 @@ func TestListFilter_SearchIsCapped(t *testing.T) {
 
 func TestListFilter_Evaluations(t *testing.T) {
 	var candidates []ResourceID
-	for i := 0; i < 250; i++ {
+	for i := range 250 {
 		candidates = append(candidates, ResourceID{Namespace: "team", Name: fmt.Sprintf("a%03d", i)})
 	}
 	pdp := newMockPDP(func(r authzen.EvaluationRequest) bool {
@@ -168,7 +168,7 @@ func TestListFilter_EvaluationsRunInParallel(t *testing.T) {
 	assert.LessOrEqual(t, pdp.peak.Load(), int32(maxParallelBatches))
 	names := args[1].([]string)
 	require.Len(t, names, 1000)
-	assert.True(t, sort.StringsAreSorted(names))
+	assert.True(t, slices.IsSorted(names))
 }
 
 func TestListFilter_Errors(t *testing.T) {
@@ -225,7 +225,7 @@ func TestListFilter_Errors(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, tt.wantStatus, StatusOf(err))
 				if tt.wantIs != nil {
-					assert.ErrorIs(t, err, tt.wantIs)
+					require.ErrorIs(t, err, tt.wantIs)
 				}
 				return
 			}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -190,10 +191,5 @@ func (c *IssuerConfig) clientIDClaims() []string {
 }
 
 func (c *IssuerConfig) allowsAlgorithm(alg string) bool {
-	for _, a := range c.Algorithms {
-		if a == alg {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Algorithms, alg)
 }

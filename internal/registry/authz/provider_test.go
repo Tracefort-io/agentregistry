@@ -136,7 +136,7 @@ func TestError_HumaResponse(t *testing.T) {
 			}
 			var body map[string]any
 			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
-			assert.Equal(t, float64(tt.status), body["status"])
+			assert.InDelta(t, float64(tt.status), body["status"], 0)
 			assert.Equal(t, http.StatusText(tt.status), body["title"])
 			assert.NotEmpty(t, body["detail"])
 			assert.NotContains(t, resp.Body.String(), errPDPDown.Error())

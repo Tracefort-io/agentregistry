@@ -59,7 +59,7 @@ func buildAuth(ctx context.Context, cfg *config.Config, options types.AppOptions
 			return authWiring{}, fmt.Errorf("auth mode %q requires AUTH_ISSUERS or AUTH_ISSUERS_FILE, or an AuthnProvider in AppOptions",
 				config.AuthModeRequired)
 		}
-		provider, err := jwtauthn.NewProvider(ctx, issuers, cfg.AuthClockSkew)
+		provider, err := jwtauthn.NewProvider(ctx, issuers, cfg.AuthClockSkew, jwtauthn.WithKeyCacheTTL(cfg.AuthJWKSRefresh))
 		if err != nil {
 			return authWiring{}, fmt.Errorf("create jwt authn provider: %w", err)
 		}

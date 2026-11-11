@@ -359,7 +359,7 @@ func (c *Client) SearchResources(ctx context.Context, req ResourceSearchRequest,
 	var out []Resource
 	seen := map[string]bool{}
 	page := req.Page
-	for i := 0; i < maxSearchPages; i++ {
+	for range maxSearchPages {
 		req.Page = page
 		resp, err := c.SearchResource(ctx, req)
 		if err != nil {

@@ -24,10 +24,11 @@ Scope: the registry API, web UI and MCP endpoint with `AGENT_REGISTRY_AUTH_MODE=
 | Calling the API without a token, or around the gateway | Every request except `AUTH_OPEN_PATHS` and the UI's static files needs a valid token, checked by the registry itself. Open paths match exactly, so a resource named `health` is not open. | `pkg/registry/auth`, `internal/registry/api/router` |
 | Forged or altered tokens | Signature checked against the issuer's published keys; `none` and HMAC algorithms refused; issuer, audience, expiry and not-before checked, with bounded clock skew. | `pkg/registry/auth/jwt` |
 | A token for another service | The audience must be one configured for the registry. | `pkg/registry/auth/jwt` |
+| A leaked signing key | Remove it from the IdP: the registry fetches every issuer's keys again each `AUTH_JWKS_REFRESH` (default 5m, whatever the IdP's cache headers say), so the removed key stops verifying within that time plus a fifth. A new key is picked up on its first token. | `pkg/registry/auth/jwt` |
 | Doing more than the role allows | Every operation is asked of the PDP; a denial is `403`, or `404` for a read so existence is not disclosed. | `internal/registry/authz` |
 | Deploying with someone else's resources | Applying a Deployment also needs `read` on its Runtime, Model and bound Deployments, and `deploy` on its target. | `internal/registry/authz/deployment.go` |
 | Seeing rows through a list | Lists return only rows the caller may read, filtered in SQL with bound parameters. | `internal/registry/authz/listfilter.go` |
-| PDP down or slow | Every PDP call is time-bounded; any failure is a denial (`503`). Only permits are cached, briefly, so a revoked permission takes effect within `AUTHZEN_CACHE_TTL`. | `pkg/registry/authzen` |
+| PDP down or slow | Every PDP call is time-bounded; any failure is a denial (`503`). Only permits are cached, briefly, so a revoked permission takes effect within `AUTHZEN_CACHE_TTL`. The PDP's address and errors are logged, never returned to the caller. | `pkg/registry/authzen`, `internal/registry/authz/errors.go` |
 | Starting without protection | With `AUTH_MODE=required` the server refuses to start unless issuers (or an `AuthnProvider`) and a PDP are configured. | `internal/registry/config`, `internal/registry/auth_wiring.go` |
 | Token theft from the browser | Tokens stay in memory, never in `localStorage` or `sessionStorage`; sign-in uses the authorization code flow with PKCE; the return path after sign-in must stay on the site. | `ui/lib/auth.tsx` |
 | Changing log levels remotely | `/logging` is localhost-only and, with auth required, also needs a token. | `internal/registry/api/router` |
@@ -36,7 +37,12 @@ Scope: the registry API, web UI and MCP endpoint with `AGENT_REGISTRY_AUTH_MODE=
 ## Residual risks
 
 - **The PDP's policy is the control.** A permissive policy permits; review it like code. The reference policy is [authzen/registry.rego](authzen/registry.rego).
-- **Revocation lag.** A permission revoked in the PDP can still be honored for up to `AUTHZEN_CACHE_TTL` (default 5s); a revoked token until it expires.
+- **Revocation lag.** A permission revoked in the PDP can still be honored for up to `AUTHZEN_CACHE_TTL` (default 5s); a revoked token until it expires; a removed signing key for up to `AUTH_JWKS_REFRESH` plus a fifth (default 6 minutes).
+- **A gateway in front keeps its own key cache.** agentgateway, for example, does not fetch keys again on an unknown key ID: after a key rotation it refuses new tokens until its next refresh (about 2.5 minutes in testing), even though the registry accepts them.
+
+## Verification
+
+`make test-auth-e2e` ([test/authe2e](../../test/authe2e/README.md)) checks each role (admin, writer, reader, anonymous) against a running registry, its IdP and its PDP, through the gateway and around it. A PDP outage and a signing-key rotation have been tested by hand on Keycloak: with the PDP stopped every request was `503` (`403` at the gateway) and health stayed up.
 - **`/v0/me` is advisory.** It reports permissions on whole collections; a policy that decides per resource can still deny an individual request.
 - **Batch apply reports denials per document** with HTTP `200`; clients must read each result's `status`.
 - **Internal system sessions** (controllers, reconciliation) skip the PDP by design.

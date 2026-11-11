@@ -93,6 +93,10 @@ type Config struct {
 	AuthIssuersFile string `env:"AUTH_ISSUERS_FILE" envDefault:""`
 	// AuthClockSkew is the leeway applied to exp, nbf and iat.
 	AuthClockSkew time.Duration `env:"AUTH_CLOCK_SKEW" envDefault:"30s"`
+	// AuthJWKSRefresh is how often each issuer's signing keys are fetched
+	// again, and so how long a key the IdP has removed (for example after a
+	// leak) is still trusted. New keys are picked up at once regardless.
+	AuthJWKSRefresh time.Duration `env:"AUTH_JWKS_REFRESH" envDefault:"5m"`
 	// AuthOpenPaths are exact paths served without authentication.
 	AuthOpenPaths []string `env:"AUTH_OPEN_PATHS" envSeparator:"," envDefault:"/health,/ping,/version"`
 	// The web UI signs users in with the OAuth 2.0 authorization code flow

@@ -98,7 +98,7 @@ func TestSpecSchemaEvaluationRequests(t *testing.T) {
 
 	require.Len(t, bodies, 3)
 	for _, body := range bodies {
-		assert.NoError(t, schema.Validate(asJSON(t, body)), "request %s", body)
+		require.NoError(t, schema.Validate(asJSON(t, body)), "request %s", body)
 	}
 
 	// The schema is enforced: a subject without an id is invalid.
@@ -122,7 +122,7 @@ func TestSpecSchemaEvaluationResponses(t *testing.T) {
 	}
 	for _, body := range []string{`{"decision": "true"}`, `{"decision": 1}`, `{}`} {
 		var resp EvaluationResponse
-		assert.Error(t, json.Unmarshal([]byte(body), &resp), "client rejects %s", body)
+		require.Error(t, json.Unmarshal([]byte(body), &resp), "client rejects %s", body)
 		assert.Error(t, schema.Validate(asJSON(t, []byte(body))), "schema rejects %s", body)
 	}
 }

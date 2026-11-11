@@ -135,5 +135,5 @@ func (m *guardedMux) HandleFunc(pattern string, handler func(http.ResponseWriter
 		m.ServeMux.HandleFunc(pattern, handler)
 		return
 	}
-	m.ServeMux.Handle(pattern, m.wrap(http.HandlerFunc(handler)))
+	m.Handle(pattern, m.wrap(http.HandlerFunc(handler)))
 }

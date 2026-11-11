@@ -1,7 +1,6 @@
 package jwt
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -52,7 +51,7 @@ func nilIfEmpty(s []string) []string {
 
 func TestParseActors(t *testing.T) {
 	deep := map[string]any{"sub": "leaf"}
-	for i := 0; i < maxActorDepth; i++ {
+	for range maxActorDepth {
 		deep = map[string]any{"sub": "a", "act": deep}
 	}
 	tests := []struct {
@@ -105,6 +104,6 @@ func TestBearerTokenNeverEchoed(t *testing.T) {
 	for _, header := range []string{"Basic " + secret, "Bearer " + secret + " extra"} {
 		_, err := bearerToken(header)
 		require.Error(t, err)
-		require.False(t, strings.Contains(err.Error(), secret))
+		require.NotContains(t, err.Error(), secret)
 	}
 }
