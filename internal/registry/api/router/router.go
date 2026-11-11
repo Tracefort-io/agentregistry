@@ -259,6 +259,10 @@ func NewHumaAPI(
 	}
 	mux.Handle("/logging", loggingHandler)
 
+	// The web UI's sign-in settings. Served without authentication: the UI
+	// reads them before it has a token.
+	mux.Handle("GET /auth-config.json", authConfigHandler(cfg))
+
 	// Serve UI from root path or handle 404 for non-API routes
 	if uiHandler != nil {
 		// Register UI handler for all non-API routes

@@ -1,6 +1,9 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"net/url"
+)
 
 // Validate performs runtime validations on the loaded configuration.
 func Validate(cfg *Config) error {
@@ -39,6 +42,14 @@ func validateAuth(cfg *Config) error {
 	// in AppOptions can stand in for them.
 	if cfg.AuthzenURL == "" {
 		return fmt.Errorf("auth mode %q requires AUTHZEN_URL", AuthModeRequired)
+	}
+	if (cfg.AuthUIIssuer == "") != (cfg.AuthUIClientID == "") {
+		return fmt.Errorf("set both AUTH_UI_ISSUER and AUTH_UI_CLIENT_ID, or neither")
+	}
+	if cfg.AuthUIIssuer != "" {
+		if u, err := url.Parse(cfg.AuthUIIssuer); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return fmt.Errorf("AUTH_UI_ISSUER must be an absolute http(s) URL")
+		}
 	}
 	if cfg.AuthClockSkew < 0 {
 		return fmt.Errorf("auth clock skew must be non-negative")

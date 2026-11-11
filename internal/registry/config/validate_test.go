@@ -92,6 +92,12 @@ func TestValidate_Auth(t *testing.T) {
 			c.AuthzenStaticToken = "tok"
 		}), true},
 		{"static token only", required(func(c *Config) { c.AuthzenStaticTokenFile = "/run/pdp-token" }), false},
+		{"ui sign-in configured", required(func(c *Config) {
+			c.AuthUIIssuer, c.AuthUIClientID = "https://idp.example.com/realms/r", "agentregistry-ui"
+		}), false},
+		{"ui issuer without client", required(func(c *Config) { c.AuthUIIssuer = "https://idp.example.com/realms/r" }), true},
+		{"ui client without issuer", required(func(c *Config) { c.AuthUIClientID = "agentregistry-ui" }), true},
+		{"ui issuer not a url", required(func(c *Config) { c.AuthUIIssuer, c.AuthUIClientID = "idp", "agentregistry-ui" }), true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

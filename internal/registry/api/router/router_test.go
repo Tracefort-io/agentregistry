@@ -256,3 +256,39 @@ func TestNewHumaAPILoggingRequiresAuthn(t *testing.T) {
 		})
 	}
 }
+
+// The web UI reads its sign-in settings from /auth-config.json before it has
+// a token, so the document is served without authentication.
+func TestNewHumaAPIAuthConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *config.Config
+		want string
+	}{
+		{"auth disabled", &config.Config{}, `{"required":false}`},
+		{
+			"auth required with ui sign-in",
+			&config.Config{
+				AuthMode: config.AuthModeRequired, AuthOpenPaths: []string{"/health"},
+				AuthUIIssuer: "http://auth.example/realms/r", AuthUIClientID: "agentregistry-ui", AuthUIScopes: "openid profile",
+			},
+			`{"required":true,"issuer":"http://auth.example/realms/r","clientId":"agentregistry-ui","scopes":"openid profile"}`,
+		},
+		{
+			"auth required without ui sign-in",
+			&config.Config{AuthMode: config.AuthModeRequired, AuthOpenPaths: []string{"/health"}},
+			`{"required":true}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := newTestAPI(t, tt.cfg, tokenAuthnProvider{})
+			recorder := httptest.NewRecorder()
+			mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/auth-config.json", nil))
+			require.Equal(t, http.StatusOK, recorder.Code)
+			require.JSONEq(t, tt.want, recorder.Body.String())
+			require.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
+			require.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
+		})
+	}
+}

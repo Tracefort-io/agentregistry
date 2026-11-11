@@ -116,6 +116,25 @@ func TestApplyHooksCoversEveryStoreKind(t *testing.T) {
 		"override must be kept; the PEP would return 401 without a session")
 }
 
+func TestApplyHooksAnswersMe(t *testing.T) {
+	w, err := buildAuth(context.Background(), requiredAuthConfig(), types.AppOptions{})
+	require.NoError(t, err)
+	stores := map[string]*v1alpha1store.Store{v1alpha1.KindAgent: {}}
+
+	options := types.AppOptions{}
+	require.NoError(t, w.applyHooks(&options, stores))
+	require.NotNil(t, options.Permissions, "the PEP answers /v0/me")
+	_, err = options.Permissions(context.Background(), "default")
+	assert.ErrorIs(t, err, auth.ErrUnauthenticated, "the PEP needs a session")
+
+	custom := func(context.Context, string) (types.Permissions, error) { return types.Permissions{Admin: true}, nil }
+	options = types.AppOptions{Permissions: custom}
+	require.NoError(t, w.applyHooks(&options, stores))
+	got, err := options.Permissions(context.Background(), "default")
+	require.NoError(t, err)
+	assert.True(t, got.Admin, "a Permissions func from AppOptions wins")
+}
+
 func TestPDPTokenSource(t *testing.T) {
 	dir := t.TempDir()
 	tokenFile := filepath.Join(dir, "token")

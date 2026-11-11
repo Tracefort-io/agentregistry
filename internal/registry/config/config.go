@@ -95,6 +95,13 @@ type Config struct {
 	AuthClockSkew time.Duration `env:"AUTH_CLOCK_SKEW" envDefault:"30s"`
 	// AuthOpenPaths are exact paths served without authentication.
 	AuthOpenPaths []string `env:"AUTH_OPEN_PATHS" envSeparator:"," envDefault:"/health,/ping,/version"`
+	// The web UI signs users in with the OAuth 2.0 authorization code flow
+	// and PKCE against AuthUIIssuer, as the public client AuthUIClientID. It
+	// reads these from /auth-config.json at runtime. Both are required for
+	// the UI to sign in when AuthMode is "required".
+	AuthUIIssuer   string `env:"AUTH_UI_ISSUER" envDefault:""`
+	AuthUIClientID string `env:"AUTH_UI_CLIENT_ID" envDefault:""`
+	AuthUIScopes   string `env:"AUTH_UI_SCOPES" envDefault:"openid profile email"`
 
 	// Authorization (OpenID AuthZEN 1.0 PDP)
 	//

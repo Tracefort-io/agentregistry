@@ -3,6 +3,8 @@ package router
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"slices"
@@ -11,6 +13,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 
+	"github.com/agentregistry-dev/agentregistry/internal/registry/config"
 	"github.com/agentregistry-dev/agentregistry/pkg/logging"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/auth"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/authzen"
@@ -49,6 +52,38 @@ func openPathSet(paths []string) map[string]bool {
 		}
 	}
 	return open
+}
+
+// authConfig tells the web UI whether to sign users in, and where. The UI is a
+// static export, so it reads these at runtime instead of at build time.
+type authConfig struct {
+	Required bool   `json:"required"`
+	Issuer   string `json:"issuer,omitempty"`
+	ClientID string `json:"clientId,omitempty"`
+	Scopes   string `json:"scopes,omitempty"`
+}
+
+// authConfigHandler serves /auth-config.json. Sign-in details are included
+// only when auth is required; a public client ID and an issuer URL are not
+// secrets.
+func authConfigHandler(cfg *config.Config) http.Handler {
+	body := authConfig{Required: cfg.AuthMode == config.AuthModeRequired}
+	if body.Required {
+		body.Issuer, body.ClientID = cfg.AuthUIIssuer, cfg.AuthUIClientID
+		if body.ClientID != "" {
+			body.Scopes = cfg.AuthUIScopes
+		}
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		// A struct of strings and a bool always encodes.
+		panic(fmt.Sprintf("encode auth config: %v", err))
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(raw)
+	})
 }
 
 // requestIDHeader correlates registry logs with PDP decision logs.

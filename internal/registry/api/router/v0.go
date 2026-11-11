@@ -4,6 +4,8 @@ package router
 import (
 	"context"
 	"errors"
+	"maps"
+	"slices"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/crud"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/deploymentlogs"
 	v0health "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/health"
+	v0me "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/me"
 	v0ping "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/ping"
 	v0version "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/version"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/config"
@@ -93,6 +96,10 @@ type RouteOptions struct {
 	// v1alpha1 stores and hooks used by /v0/apply.
 	// TODO(controller): temporary bridge for downstream synchronous approval routes.
 	ExtraResourceRoutes func(api huma.API, pathPrefix string, ctx types.ResourceRouteContext)
+
+	// Permissions answers GET /v0/me. Nil reports every action as allowed,
+	// for a registry without authorization.
+	Permissions types.PermissionsFunc
 }
 
 // RegisterRoutes registers all API routes under /v0. Required
@@ -118,6 +125,10 @@ func RegisterRoutes(
 	v0health.RegisterHealthEndpoint(api, pathPrefix, cfg, metrics)
 	v0ping.RegisterPingEndpoint(api, pathPrefix)
 	v0version.RegisterVersionEndpoint(api, pathPrefix, versionInfo)
+	v0me.Register(api, pathPrefix, v0me.Config{
+		Permissions: opts.Permissions,
+		Kinds:       slices.Collect(maps.Keys(opts.Stores)),
+	})
 
 	// v1alpha1 generic routes. Cross-kind dangling-ref detection uses
 	// a Store-backed resolver. Deployment side effects are handled by

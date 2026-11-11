@@ -12,11 +12,11 @@ import (
 
 // Contract action names.
 const (
-	ActionRead   = "read"
-	ActionList   = "list"
-	ActionApply  = "apply"
-	ActionDelete = "delete"
-	ActionDeploy = "deploy"
+	ActionRead   = types.ActionRead
+	ActionList   = types.ActionList
+	ActionApply  = types.ActionApply
+	ActionDelete = types.ActionDelete
+	ActionDeploy = types.ActionDeploy
 	ActionAdmin  = "admin"
 )
 

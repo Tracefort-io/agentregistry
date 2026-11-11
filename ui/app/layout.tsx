@@ -4,6 +4,8 @@ import { Navigation } from "@/components/navigation"
 import { Footer } from "@/components/footer"
 import { ThemeProvider } from "@/components/theme-provider"
 import { CatalogNavProvider } from "@/lib/catalog-nav"
+import { AuthProvider } from "@/lib/auth"
+import { PermissionsProvider } from "@/lib/permissions"
 import { Toaster } from "@/components/ui/sonner"
 import "./globals.css"
 
@@ -29,17 +31,21 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${jakarta.variable} font-sans`}>
         <ThemeProvider>
-          <CatalogNavProvider>
-            <div className="min-h-screen flex flex-col md:flex-row">
-              <Navigation />
-              <div className="flex-1 min-w-0 flex flex-col">
-                <div className="flex-1">
-                  {children}
+          <AuthProvider>
+            <PermissionsProvider>
+              <CatalogNavProvider>
+                <div className="min-h-screen flex flex-col md:flex-row">
+                  <Navigation />
+                  <div className="flex-1 min-w-0 flex flex-col">
+                    <div className="flex-1">
+                      {children}
+                    </div>
+                    <Footer />
+                  </div>
                 </div>
-                <Footer />
-              </div>
-            </div>
-          </CatalogNavProvider>
+              </CatalogNavProvider>
+            </PermissionsProvider>
+          </AuthProvider>
           <Toaster />
         </ThemeProvider>
       </body>

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useCan } from "@/lib/permissions"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -308,6 +309,8 @@ function DeploymentRow({ item, onRemove, removing }: {
   removing: boolean
 }) {
   const isAgent = item.resourceType === 'agent'
+  // Removing deletes the Deployment; offer it only to users who may.
+  const canRemove = useCan()('Deployment', 'delete')
   const [showError, setShowError] = useState(false)
   const hasError = Boolean(item.error)
 
@@ -356,7 +359,7 @@ function DeploymentRow({ item, onRemove, removing }: {
           )}
         </div>
 
-        {item.origin === 'managed' && (
+        {item.origin === 'managed' && canRemove && (
           <Button
             variant="ghost"
             size="sm"

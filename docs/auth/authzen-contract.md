@@ -87,6 +87,23 @@ All must permit, so a Deployment cannot run with, or bind to, a resource its aut
    Either way at most `AUTHZEN_LIST_MAX` rows are authorized. More results or candidates than that fails the request with `503`.
 3. The permitted `<namespace>/<name>` ids become a parameterized SQL condition on the list query, so rows the caller may not read are never returned.
 
+## Permissions (`GET /v0/me`)
+
+`GET /v0/me?namespace=<ns>` tells a client such as the web UI who the caller is and which actions they may take, so it can show only the actions that will succeed. The registry sends one `evaluations` batch with `execute_all` (split into batches of 100 if needed):
+
+- `admin` on `{"type": "registry", "id": "agentregistry"}`,
+- for each kind, `read`, `list`, `apply` and `delete` (and `deploy` for `agent` and `mcpserver`) on the kind's collection: `id` `<namespace>/*`, or `*` for `namespace=all`.
+
+```json
+{
+  "authenticated": true, "subject": "<sub>", "issuer": "<iss>", "username": "bob",
+  "roles": ["registry-reader"], "namespace": "default", "enforced": true, "admin": false,
+  "permissions": {"Agent": ["read", "list"], "Secret": []}
+}
+```
+
+The answer is advisory: every request is still authorized on its own, and a policy that decides per resource may deny an action the collection check allowed. Without authorization the registry reports every action as allowed with `enforced: false`.
+
 ## Responses
 
 | Outcome | HTTP status |

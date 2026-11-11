@@ -4,10 +4,11 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
 import { useState, useSyncExternalStore } from "react"
-import { Menu, Moon, Rocket, Sun } from "lucide-react"
+import { LogOut, Menu, Moon, Rocket, Sun, UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { CATALOG_SECTIONS, useCatalogNav } from "@/lib/catalog-nav"
+import { useAuth } from "@/lib/auth"
 
 const itemClass = (active: boolean) =>
   `group flex items-center gap-2.5 rounded-md px-3 py-2 text-[15px] font-medium transition-colors ${
@@ -26,6 +27,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { theme, setTheme } = useTheme()
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false)
   const { activeTab, setActiveTab, counts } = useCatalogNav()
+  const { user, signOut } = useAuth()
+  const userName = user?.profile.preferred_username || user?.profile.name || user?.profile.email
 
   return (
     <div className="flex h-full flex-col">
@@ -72,7 +75,23 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </Link>
       </nav>
 
-      <div className="border-t px-2 py-3">
+      <div className="border-t px-2 py-3 space-y-1">
+        {user && (
+          <>
+            <div className="flex items-center gap-2.5 px-3 py-2 text-sm text-foreground" title={user.profile.sub}>
+              <UserRound className="h-4 w-4 text-muted-foreground" />
+              <span className="truncate">{userName || "Signed in"}</span>
+            </div>
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2.5 px-3 text-muted-foreground hover:text-foreground"
+              onClick={signOut}
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </Button>
+          </>
+        )}
         {mounted && (
           <Button
             variant="ghost"

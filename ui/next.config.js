@@ -18,6 +18,10 @@ const nextConfig = {
         destination: 'http://localhost:12121/v0.1/:path*',
       },
       {
+        source: '/auth-config.json',
+        destination: 'http://localhost:12121/auth-config.json',
+      },
+      {
         source: '/api/:path*',
         destination: 'http://localhost:12121/api/:path*',
       },

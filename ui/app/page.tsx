@@ -35,6 +35,7 @@ import { DeployDialog } from "@/components/deploy-dialog"
 import { listServersV0, listSkillsV0, listAgentsV0, listPromptsV0, ServerResponse, SkillResponse, AgentResponse, PromptResponse } from "@/lib/admin-api"
 import MCPIcon from "@/components/icons/mcp"
 import { CATALOG_SECTIONS, useCatalogNav } from "@/lib/catalog-nav"
+import { useCan } from "@/lib/permissions"
 import {
   Search,
   RefreshCw,
@@ -73,6 +74,19 @@ interface GroupedAgent extends AgentResponse {
 export default function AdminPage() {
   const { activeTab, setCounts } = useCatalogNav()
   const activeSection = CATALOG_SECTIONS.find((s) => s.key === activeTab)!
+  // Offer only the actions the signed-in user may take; the registry still
+  // checks every request.
+  const can = useCan()
+  const canAdd = {
+    server: can("MCPServer", "apply"),
+    skill: can("Skill", "apply"),
+    agent: can("Agent", "apply"),
+    prompt: can("Prompt", "apply"),
+  }
+  const canAddAny = Object.values(canAdd).some(Boolean)
+  // Deploying creates a Deployment of the target.
+  const canDeployServer = can("MCPServer", "deploy") && can("Deployment", "apply")
+  const canDeployAgent = can("Agent", "deploy") && can("Deployment", "apply")
   const [servers, setServers] = useState<ServerResponse[]>([])
   const [groupedServers, setGroupedServers] = useState<GroupedServer[]>([])
   const [groupedSkills, setGroupedSkills] = useState<GroupedSkill[]>([])
@@ -430,33 +444,43 @@ export default function AdminPage() {
           </h1>
 
           <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" className="gap-1.5 h-8">
-                  <Plus className="h-3.5 w-3.5" />
-                  Add
-                  <ChevronDown className="h-3 w-3 opacity-60" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setAddServerDialogOpen(true)}>
-                  <span className="mr-2 h-4 w-4 flex items-center justify-center"><MCPIcon /></span>
-                  MCP Server
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setAddSkillDialogOpen(true)}>
-                  <Zap className="mr-2 h-4 w-4" />
-                  Skill
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setAddAgentDialogOpen(true)}>
-                  <Bot className="mr-2 h-4 w-4" />
-                  Agent
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setAddPromptDialogOpen(true)}>
-                  <FileText className="mr-2 h-4 w-4" />
-                  Prompt
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {canAddAny && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" className="gap-1.5 h-8">
+                    <Plus className="h-3.5 w-3.5" />
+                    Add
+                    <ChevronDown className="h-3 w-3 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {canAdd.server && (
+                    <DropdownMenuItem onClick={() => setAddServerDialogOpen(true)}>
+                      <span className="mr-2 h-4 w-4 flex items-center justify-center"><MCPIcon /></span>
+                      MCP Server
+                    </DropdownMenuItem>
+                  )}
+                  {canAdd.skill && (
+                    <DropdownMenuItem onClick={() => setAddSkillDialogOpen(true)}>
+                      <Zap className="mr-2 h-4 w-4" />
+                      Skill
+                    </DropdownMenuItem>
+                  )}
+                  {canAdd.agent && (
+                    <DropdownMenuItem onClick={() => setAddAgentDialogOpen(true)}>
+                      <Bot className="mr-2 h-4 w-4" />
+                      Agent
+                    </DropdownMenuItem>
+                  )}
+                  {canAdd.prompt && (
+                    <DropdownMenuItem onClick={() => setAddPromptDialogOpen(true)}>
+                      <FileText className="mr-2 h-4 w-4" />
+                      Prompt
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
 
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={fetchData} title="Refresh">
               <RefreshCw className="h-3.5 w-3.5" />
@@ -528,7 +552,7 @@ export default function AdminPage() {
                 icon={<span className="h-8 w-8 flex items-center justify-center text-muted-foreground"><MCPIcon /></span>}
                 title={groupedServers.length === 0 ? "No MCP servers in registry" : "No MCP servers match your filters"}
                 description={groupedServers.length === 0 ? "Add MCP servers to get started" : "Try adjusting your search or filter criteria"}
-                action={groupedServers.length === 0 ? (
+                action={groupedServers.length === 0 && canAdd.server ? (
                   <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAddServerDialogOpen(true)}>
                     <Plus className="h-3.5 w-3.5" /> Add Server
                   </Button>
@@ -542,7 +566,7 @@ export default function AdminPage() {
                     server={server}
                     tagCount={server.tagCount}
                     onClick={() => setSelectedServer(server)}
-                    showDeploy
+                    showDeploy={canDeployServer}
                     onDeploy={(s) => setDeployServerTarget(s)}
                   />
                 ))}
@@ -556,7 +580,7 @@ export default function AdminPage() {
                 icon={<Zap className="h-8 w-8 text-muted-foreground" />}
                 title={groupedSkills.length === 0 ? "No skills in registry" : "No skills match your filters"}
                 description={groupedSkills.length === 0 ? "Publish skills to get started" : "Try adjusting your search"}
-                action={groupedSkills.length === 0 ? (
+                action={groupedSkills.length === 0 && canAdd.skill ? (
                   <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAddSkillDialogOpen(true)}>
                     <Plus className="h-3.5 w-3.5" /> Add Skill
                   </Button>
@@ -582,7 +606,7 @@ export default function AdminPage() {
                 icon={<Bot className="h-8 w-8 text-muted-foreground" />}
                 title={groupedAgents.length === 0 ? "No agents in registry" : "No agents match your filters"}
                 description={groupedAgents.length === 0 ? "Create agents to get started" : "Try adjusting your search"}
-                action={groupedAgents.length === 0 ? (
+                action={groupedAgents.length === 0 && canAdd.agent ? (
                   <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAddAgentDialogOpen(true)}>
                     <Plus className="h-3.5 w-3.5" /> Add Agent
                   </Button>
@@ -596,7 +620,7 @@ export default function AdminPage() {
                     agent={agent}
                     tagCount={agent.tagCount}
                     onClick={() => setSelectedAgent(agent)}
-                    showDeploy
+                    showDeploy={canDeployAgent}
                     onDeploy={(a) => setDeployAgentTarget(a)}
                   />
                 ))}
@@ -610,7 +634,7 @@ export default function AdminPage() {
                 icon={<FileText className="h-8 w-8 text-muted-foreground" />}
                 title={groupedPrompts.length === 0 ? "No prompts in registry" : "No prompts match your filters"}
                 description={groupedPrompts.length === 0 ? "Add prompts to get started" : "Try adjusting your search"}
-                action={groupedPrompts.length === 0 ? (
+                action={groupedPrompts.length === 0 && canAdd.prompt ? (
                   <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAddPromptDialogOpen(true)}>
                     <Plus className="h-3.5 w-3.5" /> Add Prompt
                   </Button>

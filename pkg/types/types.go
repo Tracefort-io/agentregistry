@@ -391,6 +391,12 @@ type AppOptions struct {
 	// binding to the MCP resource). Nil falls back to AuthnProvider.
 	MCPAuthnProvider auth.AuthnProvider
 
+	// Permissions answers GET /v0/me: which actions the caller may take, so
+	// clients can offer only those. Nil uses the AuthZEN PEP when auth is
+	// required, and otherwise reports every action as allowed. Supply it with
+	// custom Authorizers so the two agree.
+	Permissions PermissionsFunc
+
 	// InitialFinalizers seeds finalizers atomically on create for kinds
 	// whose external teardown must be protected from a concurrent delete.
 	InitialFinalizers map[string]func(v1alpha1.Object) []string

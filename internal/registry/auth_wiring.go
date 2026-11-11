@@ -87,8 +87,8 @@ func buildAuth(ctx context.Context, cfg *config.Config, options types.AppOptions
 
 // applyHooks installs the PEP's per-kind Authorizers and ListFilters into
 // options for every kind with a store, so the resource handlers, the batch
-// apply endpoint and the MCP bridge all ask the PDP. Hooks already set in
-// options win per kind.
+// apply endpoint and the MCP bridge all ask the PDP, and lets the PEP answer
+// GET /v0/me. Hooks already set in options win per kind.
 func (w authWiring) applyHooks(options *types.AppOptions, stores map[string]*v1alpha1store.Store) error {
 	if w.pdp == nil {
 		return nil
@@ -111,6 +111,9 @@ func (w authWiring) applyHooks(options *types.AppOptions, stores map[string]*v1a
 	}
 	options.Authorizers = mergeHooks(pep.Authorizers(), options.Authorizers)
 	options.ListFilters = mergeHooks(pep.ListFilters(), options.ListFilters)
+	if options.Permissions == nil {
+		options.Permissions = pep.Permissions
+	}
 	return nil
 }
 

@@ -610,6 +610,7 @@ func buildRouteOptions(
 	perKindHooks crud.PerKindHooks,
 ) *router.RouteOptions {
 	routeOpts := &router.RouteOptions{
+		Permissions:         options.Permissions,
 		ExtraRoutes:         options.ExtraRoutes,
 		Stores:              stores,
 		PerKindHooks:        perKindHooks,
