@@ -139,6 +139,32 @@ type Config struct {
 	// default it allows the registry's own origin and AuthUIIssuer's.
 	HTTPCSP string `env:"HTTP_CSP" envDefault:""`
 
+	// Leader election
+	//
+	// LeaderElection chooses how replicas elect the one that runs the
+	// background controllers (Deployment reconciliation and discovery,
+	// Plugin and Skill pinning); every replica serves the API.
+	//   postgres    a session advisory lock in the registry's database
+	//   kubernetes  a coordination.k8s.io Lease (needs RBAC on leases)
+	//   none        every replica runs the controllers: one replica only
+	// All replicas must use the same setting.
+	LeaderElection string `env:"LEADER_ELECTION" envDefault:"postgres"`
+	// LeaderElectionName names the lock or Lease replicas compete for.
+	LeaderElectionName string `env:"LEADER_ELECTION_NAME" envDefault:"agentregistry-controllers"`
+	// LeaderElectionNamespace holds the Lease; empty means the pod's own
+	// namespace.
+	LeaderElectionNamespace string `env:"LEADER_ELECTION_NAMESPACE" envDefault:""`
+	// LeaderElectionIdentity names this replica in the Lease; empty means
+	// the host (pod) name.
+	LeaderElectionIdentity string `env:"LEADER_ELECTION_IDENTITY" envDefault:""`
+	// Timing: others take over a silent leader after the lease duration; the
+	// leader stops if it cannot renew (or confirm its Postgres connection)
+	// within the renew deadline; everyone retries every retry period. A new
+	// Postgres leader also waits the renew deadline before it starts.
+	LeaderElectionLeaseDuration time.Duration `env:"LEADER_ELECTION_LEASE_DURATION" envDefault:"15s"`
+	LeaderElectionRenewDeadline time.Duration `env:"LEADER_ELECTION_RENEW_DEADLINE" envDefault:"10s"`
+	LeaderElectionRetryPeriod   time.Duration `env:"LEADER_ELECTION_RETRY_PERIOD" envDefault:"2s"`
+
 	// Audit log
 	//
 	// AuditEnabled records every apply and delete, and every read the

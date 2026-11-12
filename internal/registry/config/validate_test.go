@@ -156,3 +156,33 @@ func TestValidate_Audit(t *testing.T) {
 		t.Fatal("negative retention must be rejected")
 	}
 }
+
+func TestValidate_LeaderElection(t *testing.T) {
+	timed := func(mode string, lease, renew, retry time.Duration) *Config {
+		return &Config{LeaderElection: mode, LeaderElectionName: "agentregistry-controllers",
+			LeaderElectionLeaseDuration: lease, LeaderElectionRenewDeadline: renew, LeaderElectionRetryPeriod: retry}
+	}
+	tests := []struct {
+		name    string
+		cfg     *Config
+		wantErr bool
+	}{
+		{"unset means none", &Config{}, false},
+		{"none", &Config{LeaderElection: "none"}, false},
+		{"postgres defaults", timed("postgres", 15*time.Second, 10*time.Second, 2*time.Second), false},
+		{"kubernetes defaults", timed("kubernetes", 15*time.Second, 10*time.Second, 2*time.Second), false},
+		{"unknown mechanism", timed("etcd", 15*time.Second, 10*time.Second, 2*time.Second), true},
+		{"empty name", &Config{LeaderElection: "postgres", LeaderElectionLeaseDuration: 15 * time.Second, LeaderElectionRenewDeadline: 10 * time.Second, LeaderElectionRetryPeriod: 2 * time.Second}, true},
+		{"renew not below lease", timed("postgres", 10*time.Second, 10*time.Second, 2*time.Second), true},
+		{"retry not below renew", timed("kubernetes", 15*time.Second, 2*time.Second, 2*time.Second), true},
+		{"zero retry", timed("postgres", 15*time.Second, 10*time.Second, 0), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

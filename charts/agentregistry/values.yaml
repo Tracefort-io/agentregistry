@@ -72,6 +72,27 @@ http:
   # own origin plus the sign-in service's (auth.ui.issuer).
   contentSecurityPolicy: ""
 
+# @section Leader election
+
+# -- Elects the one replica that runs the background controllers (Deployment
+# reconciliation and discovery, Plugin and Skill pinning). Every replica
+# serves the API. Needed to run more than one replica.
+leaderElection:
+  # -- "postgres" (an advisory lock in the registry's database, the
+  # default), "kubernetes" (a Lease; the chart grants RBAC on leases), or
+  # "none" (every replica runs the controllers; replicaCount must be 1).
+  # Change it with all old pods stopped: replicas using different
+  # mechanisms do not see each other.
+  mechanism: postgres
+  # -- Name of the lock or Lease the replicas compete for.
+  name: agentregistry-controllers
+  # -- Others take over a silent leader after this long.
+  leaseDuration: 15s
+  # -- The leader stops if it cannot renew (or reach Postgres) within this.
+  renewDeadline: 10s
+  # -- How often replicas campaign and the leader renews.
+  retryPeriod: 2s
+
 # @section Audit log
 
 # -- Audit log: every apply and delete, and every read the authorization

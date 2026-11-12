@@ -142,15 +142,13 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 	}
 	controllerConfig := deploymentControllerConfig(cfg)
 	controllerConfig.DependencyKinds = maps.Clone(options.DeploymentDependencyKinds)
-	controllerConfig.Leadership = options.DeploymentControllerLeadership
 	controllerConfig.DeploymentFinalized = options.DeploymentFinalized
 	controllerConfig.DeploymentApplied = options.DeploymentApplied
-	if _, err := controller.StartDeploymentController(ctx, pool, stores, deploymentAdapters, discoverySources, controllerConfig); err != nil {
-		return fmt.Errorf("start deployment controller: %w", err)
-	}
+
 	// The Plugin controller resolves each plugin's pinned source pointer to a
 	// concrete commit/digest and records the manifest/inventory in PluginStatus
 	// out of band of the API write — same pattern as the Deployment controller.
+	// The Skill controller does the same for skills, minus the manifest scan.
 	// One git source carries the credential hook for every consumer, so private
 	// repositories are configured in exactly one place.
 	gitCredentials := options.GitCredentials
@@ -158,29 +156,44 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 		gitCredentials = gitutil.NewSecretCredentialResolver(secretResolver)
 	}
 	gitSource := gitutil.NewSource(gitCredentials, gitutil.Limits{MaxBytes: bundle.MaxBundleBytes, MaxEntries: bundle.MaxBundleFiles})
-	pluginController, err := controller.NewPluginController(pool, stores, controller.PluginControllerDeps{Git: gitSource})
-	if err != nil {
+	// Fail at startup, not in the first term, on a configuration error.
+	if _, err := controller.NewPluginController(pool, stores, controller.PluginControllerDeps{Git: gitSource}); err != nil {
 		return fmt.Errorf("create plugin controller: %w", err)
 	}
-	if pluginController != nil {
-		if err := pluginController.Start(ctx); err != nil {
-			return fmt.Errorf("start plugin controller: %w", err)
-		}
-		defer pluginController.Stop()
-	}
-	// The Skill controller resolves each skill's pinned git source ref to a
-	// concrete commit and records it in SkillStatus out of band of the API write
-	// — the resolve-and-pin counterpart to the Plugin controller, minus the
-	// manifest/inventory scan (a skill has no bundle to enumerate).
-	skillController, err := controller.NewSkillController(pool, stores, controller.SkillControllerDeps{Git: gitSource})
-	if err != nil {
+	if _, err := controller.NewSkillController(pool, stores, controller.SkillControllerDeps{Git: gitSource}); err != nil {
 		return fmt.Errorf("create skill controller: %w", err)
 	}
-	if skillController != nil {
-		if err := skillController.Start(ctx); err != nil {
-			return fmt.Errorf("start skill controller: %w", err)
+	startSourceControllers := func(term context.Context) (stop func()) {
+		return startPinningControllers(term, pool, stores, gitSource)
+	}
+
+	// Only the elected replica runs the controllers. An integrator that
+	// supplies DeploymentControllerLeadership keeps the earlier behavior:
+	// its terms gate the Deployment controller, and Plugin and Skill run
+	// on every replica.
+	stopLeading := func() {}
+	if options.DeploymentControllerLeadership != nil {
+		controllerConfig.Leadership = options.DeploymentControllerLeadership
+		if _, err := controller.StartDeploymentController(ctx, pool, stores, deploymentAdapters, discoverySources, controllerConfig); err != nil {
+			return fmt.Errorf("start deployment controller: %w", err)
 		}
-		defer skillController.Stop()
+		defer startSourceControllers(ctx)()
+	} else {
+		elector, err := buildElector(cfg, pool)
+		if err != nil {
+			return fmt.Errorf("configure leader election: %w", err)
+		}
+		terms := newControllerTerms(startSourceControllers)
+		controllerConfig.Leadership = terms.deployment
+		controllerConfig.TermStopped = terms.deploymentTermStopped
+		if _, err := controller.StartDeploymentController(ctx, pool, stores, deploymentAdapters, discoverySources, controllerConfig); err != nil {
+			return fmt.Errorf("start deployment controller: %w", err)
+		}
+		// Runs before the database closes: stop the controllers, then
+		// release leadership.
+		stopLeading = terms.run(ctx, elector)
+		defer stopLeading()
+		slog.Info("leader election started", "mechanism", cfg.LeaderElection, "election", cfg.LeaderElectionName)
 	}
 
 	slog.Info("starting agentregistry", "version", version.Version, "commit", version.GitCommit)
@@ -276,6 +289,9 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 			slog.Error("MCP server forced to shutdown", "error", err)
 		}
 	}
+	// Hand leadership over now, so another replica takes over at once
+	// instead of after the lease or lock times out.
+	stopLeading()
 
 	slog.Info("server exiting")
 	return nil

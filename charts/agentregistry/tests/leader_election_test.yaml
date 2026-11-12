@@ -1,0 +1,138 @@
+suite: Leader election
+templates:
+  - configmap.yaml
+  - deployment.yaml
+  - leader-election-rbac.yaml
+  - postgresql-secret.yaml
+  - validate.yaml
+
+tests:
+  - it: elects with Postgres by default
+    template: configmap.yaml
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_LEADER_ELECTION
+          value: postgres
+      - equal:
+          path: data.AGENT_REGISTRY_LEADER_ELECTION_NAME
+          value: agentregistry-controllers
+      - equal:
+          path: data.AGENT_REGISTRY_LEADER_ELECTION_LEASE_DURATION
+          value: 15s
+      - equal:
+          path: data.AGENT_REGISTRY_LEADER_ELECTION_RENEW_DEADLINE
+          value: 10s
+      - equal:
+          path: data.AGENT_REGISTRY_LEADER_ELECTION_RETRY_PERIOD
+          value: 2s
+
+  - it: needs no Lease RBAC with Postgres
+    template: leader-election-rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: gives each pod its name and namespace for the Lease
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AGENT_REGISTRY_LEADER_ELECTION_IDENTITY
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AGENT_REGISTRY_LEADER_ELECTION_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+
+  - it: grants the service account get, create and update on leases with the Kubernetes mechanism
+    template: leader-election-rbac.yaml
+    release:
+      name: reg
+      namespace: platform
+    set:
+      leaderElection:
+        mechanism: kubernetes
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: platform
+        documentIndex: 0
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              verbs: [get, create, update]
+        documentIndex: 0
+      - isKind:
+          of: RoleBinding
+        documentIndex: 1
+      - equal:
+          path: subjects[0].kind
+          value: ServiceAccount
+        documentIndex: 1
+
+  - it: renders the chosen mechanism and timing
+    template: configmap.yaml
+    set:
+      leaderElection:
+        mechanism: kubernetes
+        leaseDuration: 30s
+        renewDeadline: 20s
+        retryPeriod: 4s
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_LEADER_ELECTION
+          value: kubernetes
+      - equal:
+          path: data.AGENT_REGISTRY_LEADER_ELECTION_LEASE_DURATION
+          value: 30s
+
+  - it: rejects an unknown mechanism
+    template: validate.yaml
+    set:
+      leaderElection:
+        mechanism: etcd
+    asserts:
+      - failedTemplate:
+          errorPattern: leaderElection.mechanism must be
+
+  - it: refuses several replicas without election
+    template: validate.yaml
+    set:
+      replicaCount: 3
+      leaderElection:
+        mechanism: none
+    asserts:
+      - failedTemplate:
+          errorPattern: set replicaCount to 1
+
+  - it: needs RBAC for the Kubernetes mechanism
+    template: validate.yaml
+    set:
+      rbac:
+        enabled: false
+      leaderElection:
+        mechanism: kubernetes
+    asserts:
+      - failedTemplate:
+          errorPattern: needs rbac.enabled
+
+  - it: allows several replicas with election
+    template: validate.yaml
+    set:
+      replicaCount: 3
+    asserts:
+      - hasDocuments:
+          count: 0

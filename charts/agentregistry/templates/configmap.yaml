@@ -14,6 +14,13 @@ data:
   AGENT_REGISTRY_SERVER_ADDRESS: {{ .Values.config.serverAddress | quote }}
   AGENT_REGISTRY_MCP_PORT: {{ .Values.config.agentRegistryMcpPort | quote }}
   AGENT_REGISTRY_ENABLE_REGISTRY_VALIDATION: {{ .Values.config.enableRegistryValidation | quote }}
+  {{- with .Values.leaderElection }}
+  AGENT_REGISTRY_LEADER_ELECTION: {{ .mechanism | quote }}
+  AGENT_REGISTRY_LEADER_ELECTION_NAME: {{ .name | quote }}
+  AGENT_REGISTRY_LEADER_ELECTION_LEASE_DURATION: {{ .leaseDuration | quote }}
+  AGENT_REGISTRY_LEADER_ELECTION_RENEW_DEADLINE: {{ .renewDeadline | quote }}
+  AGENT_REGISTRY_LEADER_ELECTION_RETRY_PERIOD: {{ .retryPeriod | quote }}
+  {{- end }}
   {{- with .Values.audit }}
   AGENT_REGISTRY_AUDIT_ENABLED: {{ .enabled | quote }}
   AGENT_REGISTRY_AUDIT_RETENTION: {{ .retention | quote }}

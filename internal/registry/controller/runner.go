@@ -49,6 +49,10 @@ type ControllerConfig struct {
 	// Deployment and discovery reconciliation. Cancellation stops all provider
 	// mutations before a subsequent owner starts.
 	Leadership <-chan context.Context
+	// TermStopped, when set, is called after every worker started for a
+	// Leadership term has stopped, so the elector can release leadership
+	// only once this replica no longer mutates anything.
+	TermStopped func()
 	// DeploymentFinalized runs after required cleanup and finalizer release so a
 	// parent Runtime can promptly re-evaluate whether all children are gone.
 	DeploymentFinalized func(context.Context, *v1alpha1.Deployment)
@@ -234,6 +238,9 @@ func runDeploymentControllerLeadership(
 			}
 			stop()
 			cancel()
+			if config.TermStopped != nil {
+				config.TermStopped()
+			}
 		}
 	}
 }

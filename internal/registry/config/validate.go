@@ -26,6 +26,9 @@ func Validate(cfg *Config) error {
 	if cfg.AuditRetention < 0 {
 		return fmt.Errorf("audit retention must be non-negative")
 	}
+	if err := validateLeaderElection(cfg); err != nil {
+		return err
+	}
 	return validateAuth(cfg)
 }
 
@@ -127,4 +130,34 @@ func validateAuth(cfg *Config) error {
 func isHTTPURL(s string) bool {
 	u, err := url.Parse(s)
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
+}
+
+// Leader election mechanisms accepted in LeaderElection.
+const (
+	LeaderElectionPostgres   = "postgres"
+	LeaderElectionKubernetes = "kubernetes"
+	LeaderElectionNone       = "none"
+)
+
+// validateLeaderElection checks the mechanism and that the leader gives up
+// before anyone can take over: retry period < renew deadline < lease
+// duration. An empty mechanism (a Config built in code) means none.
+func validateLeaderElection(cfg *Config) error {
+	switch cfg.LeaderElection {
+	case "", LeaderElectionNone:
+		return nil
+	case LeaderElectionPostgres, LeaderElectionKubernetes:
+	default:
+		return fmt.Errorf("LEADER_ELECTION must be %q, %q or %q, got %q",
+			LeaderElectionPostgres, LeaderElectionKubernetes, LeaderElectionNone, cfg.LeaderElection)
+	}
+	if cfg.LeaderElectionName == "" {
+		return fmt.Errorf("LEADER_ELECTION_NAME must not be empty")
+	}
+	if cfg.LeaderElectionRetryPeriod <= 0 ||
+		cfg.LeaderElectionRenewDeadline <= cfg.LeaderElectionRetryPeriod ||
+		cfg.LeaderElectionLeaseDuration <= cfg.LeaderElectionRenewDeadline {
+		return fmt.Errorf("leader election timing must satisfy 0 < retry period < renew deadline < lease duration")
+	}
+	return nil
 }

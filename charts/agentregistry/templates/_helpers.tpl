@@ -367,6 +367,17 @@ Called from templates/validate.yaml so it fires during helm template/install.
 {{- end }}
 {{- end }}
 {{- end }}
+{{- with .Values.leaderElection }}
+{{- if not (has .mechanism (list "postgres" "kubernetes" "none")) }}
+{{- $errors = append $errors (printf "leaderElection.mechanism must be \"postgres\", \"kubernetes\" or \"none\" (got %q)." .mechanism) }}
+{{- end }}
+{{- if and (eq .mechanism "none") (gt (int $.Values.replicaCount) 1) }}
+{{- $errors = append $errors "leaderElection.mechanism=none runs the controllers on every replica: set replicaCount to 1, or choose postgres or kubernetes." }}
+{{- end }}
+{{- if and (eq .mechanism "kubernetes") (not $.Values.rbac.enabled) }}
+{{- $errors = append $errors "leaderElection.mechanism=kubernetes needs rbac.enabled for the Lease Role." }}
+{{- end }}
+{{- end }}
 {{- if not (has .Values.secretStore.type (list "Kubernetes" "Database")) }}
 {{- $errors = append $errors (printf "secretStore.type must be \"Kubernetes\" or \"Database\" (got %q)." .Values.secretStore.type) }}
 {{- end }}

@@ -196,6 +196,12 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 | image.registry | string | `"ghcr.io"` | Agent Registry image registry |
 | image.repository | string | `"agentregistry-dev/agentregistry"` | Agent Registry image repository (org/path, excluding the image name) |
 | image.tag | string | `""` | Agent Registry image tag (immutable tags recommended). Leave empty to use .Chart.AppVersion. |
+| leaderElection | object | `{"leaseDuration":"15s","mechanism":"postgres","name":"agentregistry-controllers","renewDeadline":"10s","retryPeriod":"2s"}` | Elects the one replica that runs the background controllers (Deployment reconciliation and discovery, Plugin and Skill pinning). Every replica serves the API. Needed to run more than one replica. |
+| leaderElection.leaseDuration | string | `"15s"` | Others take over a silent leader after this long. |
+| leaderElection.mechanism | string | `"postgres"` | "postgres" (an advisory lock in the registry's database, the default), "kubernetes" (a Lease; the chart grants RBAC on leases), or "none" (every replica runs the controllers; replicaCount must be 1). Change it with all old pods stopped: replicas using different mechanisms do not see each other. |
+| leaderElection.name | string | `"agentregistry-controllers"` | Name of the lock or Lease the replicas compete for. |
+| leaderElection.renewDeadline | string | `"10s"` | The leader stops if it cannot renew (or reach Postgres) within this. |
+| leaderElection.retryPeriod | string | `"2s"` | How often replicas campaign and the leader renews. |
 | lifecycleHooks | object | `{}` | Lifecycle hooks for the Agent Registry container |
 | livenessProbe.enabled | bool | `true` | Enable liveness probe |
 | livenessProbe.failureThreshold | int | `6` | Failure threshold for liveness check |

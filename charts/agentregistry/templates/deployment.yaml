@@ -146,6 +146,15 @@ spec:
             - name: AGENT_REGISTRY_DATABASE_URL
               value: {{ printf "postgres://agentregistry:$(POSTGRES_PASSWORD)@%s:5432/agentregistry?sslmode=disable" (include "agentregistry.postgresql.fullname" .) | quote }}
             {{- end }}
+            # The Lease names its holder by pod and lives in the pod's namespace.
+            - name: AGENT_REGISTRY_LEADER_ELECTION_IDENTITY
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: AGENT_REGISTRY_LEADER_ELECTION_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: AGENT_REGISTRY_SECRET_STORE
               value: {{ .Values.secretStore.type | quote }}
             - name: AGENT_REGISTRY_SECRET_STORE_KUBERNETES_NAMESPACE
