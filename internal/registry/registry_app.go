@@ -116,9 +116,14 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 	maps.Copy(discoverySources, options.DeploymentDiscoverySources)
 	pool := db.Pool()
 	stores := buildStores(pool, options.V1Alpha1StoreTables, options.V1Alpha1MutableStoreKinds)
-	secretStore, err := buildSecretStore(cfg, pool, options.SecretStore)
+	secretStore, err := buildSecretStore(ctx, cfg, pool, options.SecretStore)
 	if err != nil {
 		return fmt.Errorf("initialize secret store: %w", err)
+	}
+	if secretMetadata := stores[v1alpha1.KindSecret]; secretMetadata != nil {
+		if err := startSecretMigration(ctx, cfg, pool, secretMetadata, secretStore); err != nil {
+			return err
+		}
 	}
 	secretResolver := secret.NewService(secretStore)
 	kagentOptions := []kagent.Option{
@@ -350,11 +355,17 @@ func buildStores(pool *pgxpool.Pool, extraStoreTables map[string]string, mutable
 	return stores
 }
 
-func buildSecretStore(cfg *config.Config, pool *pgxpool.Pool, supplied secret.Store) (secret.Store, error) {
+func buildSecretStore(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, supplied secret.Store) (secret.Store, error) {
 	if supplied != nil {
 		return supplied, nil
 	}
-	switch secret.StoreType(cfg.SecretStore) {
+	return secretStoreOfType(ctx, cfg, pool, secret.StoreType(cfg.SecretStore))
+}
+
+// secretStoreOfType builds the payload store of one type; the configured
+// store and a migration source are both built here.
+func secretStoreOfType(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, storeType secret.StoreType) (secret.Store, error) {
+	switch storeType {
 	case "":
 		return nil, nil
 	case secret.StoreTypeDatabase:
@@ -375,9 +386,37 @@ func buildSecretStore(cfg *config.Config, pool *pgxpool.Pool, supplied secret.St
 			return nil, fmt.Errorf("create Kubernetes client: %w", err)
 		}
 		return secretkubernetes.New(client.CoreV1(), cfg.SecretStoreNamespace), nil
+	case secret.StoreTypeOpenBao:
+		return buildOpenBaoStore(ctx, cfg)
 	default:
-		return nil, fmt.Errorf("unknown SECRET_STORE %q (want Database or Kubernetes)", cfg.SecretStore)
+		return nil, fmt.Errorf("unknown SECRET_STORE %q (want Database, Kubernetes or OpenBao)", storeType)
 	}
+}
+
+// startSecretMigration copies payloads missing from the configured store
+// from SECRET_STORE_MIGRATE_FROM, in the background.
+func startSecretMigration(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, secrets secretLister, target secret.Store) error {
+	if cfg.SecretStoreMigrateFrom == "" || target == nil || secrets == nil {
+		return nil
+	}
+	source, err := secretStoreOfType(ctx, cfg, pool, secret.StoreType(cfg.SecretStoreMigrateFrom))
+	if err != nil {
+		return fmt.Errorf("SECRET_STORE_MIGRATE_FROM: %w", err)
+	}
+	go func() {
+		res, err := migrateSecretPayloads(auth.WithSystemContext(ctx), secrets, source, target)
+		log := slog.With("from", cfg.SecretStoreMigrateFrom, "to", cfg.SecretStore,
+			"copied", res.Copied, "already_present", res.Present, "missing_in_source", res.Missing, "failed", res.Failed)
+		switch {
+		case err != nil:
+			log.Error("secret migration stopped", "error", err)
+		case res.Failed > 0:
+			log.Error("secret migration finished with failures; restart to retry them")
+		default:
+			log.Info("secret migration finished; the originals are still in the source store")
+		}
+	}()
+	return nil
 }
 
 func wireSecretService(hooks *crud.PerKindHooks, stores map[string]*v1alpha1store.Store, payload secret.Store) {

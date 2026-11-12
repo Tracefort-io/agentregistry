@@ -98,15 +98,15 @@ func (s *testSecretMetadataStore) PatchStatus(_ context.Context, _, _, _ string,
 
 func TestBuildSecretStore(t *testing.T) {
 	supplied := &testSecretStore{}
-	got, err := buildSecretStore(&config.Config{SecretStore: "invalid"}, nil, supplied)
+	got, err := buildSecretStore(context.Background(), &config.Config{SecretStore: "invalid"}, nil, supplied)
 	require.NoError(t, err)
 	require.Same(t, supplied, got)
 
-	got, err = buildSecretStore(&config.Config{}, nil, nil)
+	got, err = buildSecretStore(context.Background(), &config.Config{}, nil, nil)
 	require.NoError(t, err)
 	require.Nil(t, got)
 
-	_, err = buildSecretStore(&config.Config{SecretStore: string(secret.StoreTypeDatabase), SecretStoreEncryptionKey: "bad"}, nil, nil)
+	_, err = buildSecretStore(context.Background(), &config.Config{SecretStore: string(secret.StoreTypeDatabase), SecretStoreEncryptionKey: "bad"}, nil, nil)
 	require.ErrorContains(t, err, "SECRET_STORE_ENCRYPTION_KEY")
 }
 

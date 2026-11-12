@@ -101,7 +101,7 @@ tests:
       secretStore.type: invalid
     asserts:
       - failedTemplate:
-          errorPattern: 'secretStore.type must be "Kubernetes" or "Database"'
+          errorPattern: 'secretStore.type must be "Kubernetes", "Database" or "OpenBao"'
 
   - it: fails when Database has no encryption key Secret
     set:

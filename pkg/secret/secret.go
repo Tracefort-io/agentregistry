@@ -17,6 +17,7 @@ type StoreType string
 const (
 	StoreTypeDatabase   StoreType = "Database"
 	StoreTypeKubernetes StoreType = "Kubernetes"
+	StoreTypeOpenBao    StoreType = "OpenBao"
 )
 
 var (

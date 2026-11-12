@@ -234,11 +234,24 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 | resources | object | `{"limits":{"cpu":"1","memory":"1Gi"},"requests":{"cpu":"250m","memory":"256Mi"}}` | Resource requests and limits for the Agent Registry container |
 | revisionHistoryLimit | int | `10` | Number of old ReplicaSets to retain |
 | schedulerName | string | `""` | Name of the scheduler to use |
-| secretStore | object | `{"encryptionKeySecretRef":{"key":"SECRET_STORE_ENCRYPTION_KEY","name":""},"type":"Kubernetes"}` | Backend used to persist Secret resource payloads. |
+| secretStore | object | `{"encryptionKeySecretRef":{"key":"SECRET_STORE_ENCRYPTION_KEY","name":""},"migrateFrom":"","openbao":{"address":"","appRoleSecretRef":{"name":"","roleIdKey":"role-id","secretIdKey":"secret-id"},"auth":"kubernetes","authMount":"","caSecretRef":{"key":"ca.crt","name":""},"mount":"agentregistry","namespace":"","pathPrefix":"secrets","role":"agentregistry","timeout":"10s","tokenSecretRef":{"key":"token","name":""}},"type":"Kubernetes"}` | Backend used to persist Secret resource payloads. |
 | secretStore.encryptionKeySecretRef | object | `{"key":"SECRET_STORE_ENCRYPTION_KEY","name":""}` | Existing Secret containing the hex-encoded 32-byte AES-256 key for Database. |
 | secretStore.encryptionKeySecretRef.key | string | `"SECRET_STORE_ENCRYPTION_KEY"` | Key containing the encryption key. |
 | secretStore.encryptionKeySecretRef.name | string | `""` | Name of the Secret in the install namespace. |
-| secretStore.type | string | `"Kubernetes"` | "Kubernetes" stores core/v1.Secrets; "Database" encrypts payloads in Postgres. |
+| secretStore.migrateFrom | string | `""` | Copy payloads missing from the store above from this earlier store ("Kubernetes" or "Database") at startup. Originals are left in place. |
+| secretStore.openbao | object | `{"address":"","appRoleSecretRef":{"name":"","roleIdKey":"role-id","secretIdKey":"secret-id"},"auth":"kubernetes","authMount":"","caSecretRef":{"key":"ca.crt","name":""},"mount":"agentregistry","namespace":"","pathPrefix":"secrets","role":"agentregistry","timeout":"10s","tokenSecretRef":{"key":"token","name":""}}` | OpenBao settings, used when type is OpenBao. |
+| secretStore.openbao.address | string | `""` | OpenBao's URL, for example https://openbao.openbao.svc:8200. |
+| secretStore.openbao.appRoleSecretRef | object | `{"name":"","roleIdKey":"role-id","secretIdKey":"secret-id"}` | Existing Secret with the AppRole role ID and secret ID (auth approle). |
+| secretStore.openbao.auth | string | `"kubernetes"` | "kubernetes" (the pod's service account), "approle" or "token". |
+| secretStore.openbao.authMount | string | `""` | Path of the auth method; empty for its default. |
+| secretStore.openbao.caSecretRef | object | `{"key":"ca.crt","name":""}` | Existing Secret with the CA certificate that signed OpenBao's TLS certificate. |
+| secretStore.openbao.mount | string | `"agentregistry"` | Path of the KV v2 engine. |
+| secretStore.openbao.namespace | string | `""` | OpenBao namespace; empty for the root. |
+| secretStore.openbao.pathPrefix | string | `"secrets"` | Payloads live under <mount>/data/<pathPrefix>/<namespace>/<name>. |
+| secretStore.openbao.role | string | `"agentregistry"` | Role of the kubernetes auth method, bound to this release's service account. |
+| secretStore.openbao.timeout | string | `"10s"` | Timeout of each call to OpenBao. |
+| secretStore.openbao.tokenSecretRef | object | `{"key":"token","name":""}` | Existing Secret with a token (auth token, for development). |
+| secretStore.type | string | `"Kubernetes"` | "Kubernetes" stores core/v1.Secrets; "Database" encrypts payloads in Postgres; "OpenBao" keeps them in an OpenBao KV v2 engine (see docs/secrets-openbao.md). |
 | service.annotations | object | `{}` | Service annotations |
 | service.clusterIP | string | `""` | Specific cluster IP (set to None for headless) |
 | service.externalTrafficPolicy | string | `"Cluster"` | External traffic policy |

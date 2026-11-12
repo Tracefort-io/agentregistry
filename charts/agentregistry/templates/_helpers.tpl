@@ -378,8 +378,34 @@ Called from templates/validate.yaml so it fires during helm template/install.
 {{- $errors = append $errors "leaderElection.mechanism=kubernetes needs rbac.enabled for the Lease Role." }}
 {{- end }}
 {{- end }}
-{{- if not (has .Values.secretStore.type (list "Kubernetes" "Database")) }}
-{{- $errors = append $errors (printf "secretStore.type must be \"Kubernetes\" or \"Database\" (got %q)." .Values.secretStore.type) }}
+{{- if not (has .Values.secretStore.type (list "Kubernetes" "Database" "OpenBao")) }}
+{{- $errors = append $errors (printf "secretStore.type must be \"Kubernetes\", \"Database\" or \"OpenBao\" (got %q)." .Values.secretStore.type) }}
+{{- end }}
+{{- with .Values.secretStore.migrateFrom }}
+{{- if not (has . (list "Kubernetes" "Database")) }}
+{{- $errors = append $errors (printf "secretStore.migrateFrom must be \"Kubernetes\" or \"Database\" (got %q)." .) }}
+{{- else if eq . $.Values.secretStore.type }}
+{{- $errors = append $errors "secretStore.migrateFrom must differ from secretStore.type." }}
+{{- end }}
+{{- end }}
+{{- if eq .Values.secretStore.type "OpenBao" }}
+{{- with .Values.secretStore.openbao }}
+{{- if not .address }}
+{{- $errors = append $errors "secretStore.type=OpenBao needs secretStore.openbao.address." }}
+{{- end }}
+{{- if not (has .auth (list "kubernetes" "approle" "token")) }}
+{{- $errors = append $errors (printf "secretStore.openbao.auth must be \"kubernetes\", \"approle\" or \"token\" (got %q)." .auth) }}
+{{- end }}
+{{- if and (eq .auth "kubernetes") (not .role) }}
+{{- $errors = append $errors "secretStore.openbao.auth=kubernetes needs secretStore.openbao.role." }}
+{{- end }}
+{{- if and (eq .auth "approle") (not .appRoleSecretRef.name) }}
+{{- $errors = append $errors "secretStore.openbao.auth=approle needs secretStore.openbao.appRoleSecretRef.name." }}
+{{- end }}
+{{- if and (eq .auth "token") (not .tokenSecretRef.name) }}
+{{- $errors = append $errors "secretStore.openbao.auth=token needs secretStore.openbao.tokenSecretRef.name." }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- if eq .Values.secretStore.type "Database" }}
 {{- if not .Values.secretStore.encryptionKeySecretRef.name }}

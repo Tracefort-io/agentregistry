@@ -186,3 +186,46 @@ func TestValidate_LeaderElection(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_OpenBao(t *testing.T) {
+	bao := func(mutate func(*Config)) *Config {
+		c := &Config{SecretStore: "OpenBao", OpenBaoAddr: "https://openbao:8200", OpenBaoMount: "agentregistry",
+			OpenBaoAuth: "kubernetes", OpenBaoRole: "agentregistry", OpenBaoTimeout: 10 * time.Second}
+		if mutate != nil {
+			mutate(c)
+		}
+		return c
+	}
+	tests := []struct {
+		name    string
+		cfg     *Config
+		wantErr bool
+	}{
+		{"kubernetes auth", bao(nil), false},
+		{"approle auth", bao(func(c *Config) {
+			c.OpenBaoAuth, c.OpenBaoAppRoleRoleIDFile, c.OpenBaoAppRoleSecretIDFile = "approle", "/run/role-id", "/run/secret-id"
+		}), false},
+		{"token auth", bao(func(c *Config) { c.OpenBaoAuth, c.OpenBaoTokenFile = "token", "/run/token" }), false},
+		{"migrate from kubernetes", bao(func(c *Config) { c.SecretStoreMigrateFrom = "Kubernetes" }), false},
+		{"no address", bao(func(c *Config) { c.OpenBaoAddr = "" }), true},
+		{"address not a url", bao(func(c *Config) { c.OpenBaoAddr = "openbao:8200" }), true},
+		{"empty mount", bao(func(c *Config) { c.OpenBaoMount = "" }), true},
+		{"zero timeout", bao(func(c *Config) { c.OpenBaoTimeout = 0 }), true},
+		{"kubernetes without a role", bao(func(c *Config) { c.OpenBaoRole = "" }), true},
+		{"approle without files", bao(func(c *Config) { c.OpenBaoAuth = "approle" }), true},
+		{"token without a file", bao(func(c *Config) { c.OpenBaoAuth = "token" }), true},
+		{"unknown auth", bao(func(c *Config) { c.OpenBaoAuth = "ldap" }), true},
+		{"migrate from itself", bao(func(c *Config) { c.SecretStoreMigrateFrom = "OpenBao" }), true},
+		{"migrate from unknown", bao(func(c *Config) { c.SecretStoreMigrateFrom = "S3" }), true},
+		{"migrate without a store", &Config{SecretStoreMigrateFrom: "Kubernetes"}, true},
+		{"other stores ignore OpenBao settings", &Config{SecretStore: "Kubernetes"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

@@ -29,6 +29,9 @@ func Validate(cfg *Config) error {
 	if err := validateLeaderElection(cfg); err != nil {
 		return err
 	}
+	if err := validateOpenBao(cfg); err != nil {
+		return err
+	}
 	return validateAuth(cfg)
 }
 
@@ -158,6 +161,48 @@ func validateLeaderElection(cfg *Config) error {
 		cfg.LeaderElectionRenewDeadline <= cfg.LeaderElectionRetryPeriod ||
 		cfg.LeaderElectionLeaseDuration <= cfg.LeaderElectionRenewDeadline {
 		return fmt.Errorf("leader election timing must satisfy 0 < retry period < renew deadline < lease duration")
+	}
+	return nil
+}
+
+// validateOpenBao checks the OpenBao secret store settings, and the
+// migration source, when SECRET_STORE is OpenBao.
+func validateOpenBao(cfg *Config) error {
+	if cfg.SecretStoreMigrateFrom != "" {
+		if cfg.SecretStore == "" || cfg.SecretStoreMigrateFrom == cfg.SecretStore {
+			return fmt.Errorf("SECRET_STORE_MIGRATE_FROM must name a store other than SECRET_STORE")
+		}
+		if cfg.SecretStoreMigrateFrom != "Kubernetes" && cfg.SecretStoreMigrateFrom != "Database" {
+			return fmt.Errorf("SECRET_STORE_MIGRATE_FROM must be Kubernetes or Database, got %q", cfg.SecretStoreMigrateFrom)
+		}
+	}
+	if cfg.SecretStore != "OpenBao" {
+		return nil
+	}
+	if !isHTTPURL(cfg.OpenBaoAddr) {
+		return fmt.Errorf("SECRET_STORE=OpenBao needs OPENBAO_ADDR, an http(s) URL")
+	}
+	if cfg.OpenBaoMount == "" {
+		return fmt.Errorf("OPENBAO_MOUNT must not be empty")
+	}
+	if cfg.OpenBaoTimeout <= 0 {
+		return fmt.Errorf("OPENBAO_TIMEOUT must be positive")
+	}
+	switch cfg.OpenBaoAuth {
+	case "kubernetes":
+		if cfg.OpenBaoRole == "" {
+			return fmt.Errorf("OPENBAO_AUTH=kubernetes needs OPENBAO_ROLE")
+		}
+	case "approle":
+		if cfg.OpenBaoAppRoleRoleIDFile == "" || cfg.OpenBaoAppRoleSecretIDFile == "" {
+			return fmt.Errorf("OPENBAO_AUTH=approle needs OPENBAO_APPROLE_ROLE_ID_FILE and OPENBAO_APPROLE_SECRET_ID_FILE")
+		}
+	case "token":
+		if cfg.OpenBaoTokenFile == "" {
+			return fmt.Errorf("OPENBAO_AUTH=token needs OPENBAO_TOKEN_FILE")
+		}
+	default:
+		return fmt.Errorf("OPENBAO_AUTH must be kubernetes, approle or token, got %q", cfg.OpenBaoAuth)
 	}
 	return nil
 }

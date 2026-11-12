@@ -1,0 +1,125 @@
+suite: OpenBao secret store
+templates:
+  - configmap.yaml
+  - deployment.yaml
+  - postgresql-secret.yaml
+  - validate.yaml
+
+tests:
+  - it: logs in with the service account by default
+    template: deployment.yaml
+    set:
+      secretStore:
+        type: OpenBao
+        openbao:
+          address: https://openbao.openbao.svc:8200
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_REGISTRY_SECRET_STORE, value: OpenBao}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_REGISTRY_OPENBAO_ADDR, value: https://openbao.openbao.svc:8200}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_REGISTRY_OPENBAO_AUTH, value: kubernetes}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_REGISTRY_OPENBAO_ROLE, value: agentregistry}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_REGISTRY_OPENBAO_MOUNT, value: agentregistry}
+      - notContains:
+          path: spec.template.spec.volumes
+          content: {name: openbao-approle}
+          any: true
+
+  - it: mounts AppRole credentials and the CA from existing Secrets
+    template: deployment.yaml
+    set:
+      secretStore:
+        type: OpenBao
+        openbao:
+          address: https://openbao:8200
+          auth: approle
+          appRoleSecretRef: {name: registry-approle}
+          caSecretRef: {name: openbao-ca}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_REGISTRY_OPENBAO_APPROLE_SECRET_ID_FILE, value: /var/run/agentregistry/openbao/approle/secret-id}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_REGISTRY_OPENBAO_CA_CERT_FILE, value: /var/run/agentregistry/openbao/ca/ca.crt}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: openbao-approle
+            secret:
+              secretName: registry-approle
+              items:
+                - {key: role-id, path: role-id}
+                - {key: secret-id, path: secret-id}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: openbao-ca, mountPath: /var/run/agentregistry/openbao/ca, readOnly: true}
+
+  - it: migrates from the Kubernetes store
+    template: deployment.yaml
+    set:
+      secretStore:
+        type: OpenBao
+        migrateFrom: Kubernetes
+        openbao:
+          address: https://openbao:8200
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_REGISTRY_SECRET_STORE_MIGRATE_FROM, value: Kubernetes}
+
+  - it: sets no OpenBao settings for other stores
+    template: deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_REGISTRY_OPENBAO_ADDR}
+          any: true
+
+  - it: needs an address
+    template: validate.yaml
+    set:
+      secretStore:
+        type: OpenBao
+    asserts:
+      - failedTemplate:
+          errorPattern: needs secretStore.openbao.address
+
+  - it: needs the AppRole Secret
+    template: validate.yaml
+    set:
+      secretStore:
+        type: OpenBao
+        openbao: {address: https://openbao:8200, auth: approle}
+    asserts:
+      - failedTemplate:
+          errorPattern: needs secretStore.openbao.appRoleSecretRef.name
+
+  - it: rejects an unknown auth method
+    template: validate.yaml
+    set:
+      secretStore:
+        type: OpenBao
+        openbao: {address: https://openbao:8200, auth: ldap}
+    asserts:
+      - failedTemplate:
+          errorPattern: secretStore.openbao.auth must be
+
+  - it: rejects migrating from the same store
+    template: validate.yaml
+    set:
+      secretStore:
+        type: Kubernetes
+        migrateFrom: Kubernetes
+    asserts:
+      - failedTemplate:
+          errorPattern: must differ from secretStore.type

@@ -20,6 +20,30 @@ type Config struct {
 	SecretStore              string `env:"SECRET_STORE" envDefault:""`
 	SecretStoreEncryptionKey string `env:"SECRET_STORE_ENCRYPTION_KEY" envDefault:""`
 	SecretStoreNamespace     string `env:"SECRET_STORE_KUBERNETES_NAMESPACE" envDefault:"agentregistry-system"`
+	// SecretStoreMigrateFrom ("Kubernetes" or "Database") copies, at
+	// startup, every Secret payload missing from the configured store from
+	// that earlier store. Originals are left in place.
+	SecretStoreMigrateFrom string `env:"SECRET_STORE_MIGRATE_FROM" envDefault:""`
+
+	// OpenBao secret store (SECRET_STORE=OpenBao): payloads live in a KV v2
+	// engine at <OpenBaoMount>/data/<OpenBaoPathPrefix>/<namespace>/<name>.
+	OpenBaoAddr       string `env:"OPENBAO_ADDR" envDefault:""`
+	OpenBaoNamespace  string `env:"OPENBAO_NAMESPACE" envDefault:""`
+	OpenBaoMount      string `env:"OPENBAO_MOUNT" envDefault:"agentregistry"`
+	OpenBaoPathPrefix string `env:"OPENBAO_PATH_PREFIX" envDefault:"secrets"`
+	// OpenBaoAuth is "kubernetes" (the pod's service account), "approle" or
+	// "token" (a token file, for development).
+	OpenBaoAuth string `env:"OPENBAO_AUTH" envDefault:"kubernetes"`
+	// OpenBaoAuthMount is the auth method's path; empty means its default
+	// ("kubernetes" or "approle").
+	OpenBaoAuthMount           string        `env:"OPENBAO_AUTH_MOUNT" envDefault:""`
+	OpenBaoRole                string        `env:"OPENBAO_ROLE" envDefault:"agentregistry"`
+	OpenBaoKubernetesTokenFile string        `env:"OPENBAO_KUBERNETES_TOKEN_FILE" envDefault:""`
+	OpenBaoAppRoleRoleIDFile   string        `env:"OPENBAO_APPROLE_ROLE_ID_FILE" envDefault:""`
+	OpenBaoAppRoleSecretIDFile string        `env:"OPENBAO_APPROLE_SECRET_ID_FILE" envDefault:""`
+	OpenBaoTokenFile           string        `env:"OPENBAO_TOKEN_FILE" envDefault:""`
+	OpenBaoCACertFile          string        `env:"OPENBAO_CA_CERT_FILE" envDefault:""`
+	OpenBaoTimeout             time.Duration `env:"OPENBAO_TIMEOUT" envDefault:"10s"`
 
 	// MCP Registry compatibility (read-only)
 	//

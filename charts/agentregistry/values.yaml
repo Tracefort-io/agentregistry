@@ -170,8 +170,44 @@ auth:
 
 # -- Backend used to persist Secret resource payloads.
 secretStore:
-  # -- "Kubernetes" stores core/v1.Secrets; "Database" encrypts payloads in Postgres.
+  # -- "Kubernetes" stores core/v1.Secrets; "Database" encrypts payloads in
+  # Postgres; "OpenBao" keeps them in an OpenBao KV v2 engine (see
+  # docs/secrets-openbao.md).
   type: Kubernetes
+  # -- Copy payloads missing from the store above from this earlier store
+  # ("Kubernetes" or "Database") at startup. Originals are left in place.
+  migrateFrom: ""
+  # -- OpenBao settings, used when type is OpenBao.
+  openbao:
+    # -- OpenBao's URL, for example https://openbao.openbao.svc:8200.
+    address: ""
+    # -- OpenBao namespace; empty for the root.
+    namespace: ""
+    # -- Path of the KV v2 engine.
+    mount: agentregistry
+    # -- Payloads live under <mount>/data/<pathPrefix>/<namespace>/<name>.
+    pathPrefix: secrets
+    # -- "kubernetes" (the pod's service account), "approle" or "token".
+    auth: kubernetes
+    # -- Path of the auth method; empty for its default.
+    authMount: ""
+    # -- Role of the kubernetes auth method, bound to this release's service account.
+    role: agentregistry
+    # -- Existing Secret with the AppRole role ID and secret ID (auth approle).
+    appRoleSecretRef:
+      name: ""
+      roleIdKey: role-id
+      secretIdKey: secret-id
+    # -- Existing Secret with a token (auth token, for development).
+    tokenSecretRef:
+      name: ""
+      key: token
+    # -- Existing Secret with the CA certificate that signed OpenBao's TLS certificate.
+    caSecretRef:
+      name: ""
+      key: ca.crt
+    # -- Timeout of each call to OpenBao.
+    timeout: 10s
   # -- Existing Secret containing the hex-encoded 32-byte AES-256 key for Database.
   encryptionKeySecretRef:
     # -- Name of the Secret in the install namespace.

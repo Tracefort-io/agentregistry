@@ -157,6 +157,44 @@ spec:
                   fieldPath: metadata.namespace
             - name: AGENT_REGISTRY_SECRET_STORE
               value: {{ .Values.secretStore.type | quote }}
+            {{- with .Values.secretStore.migrateFrom }}
+            - name: AGENT_REGISTRY_SECRET_STORE_MIGRATE_FROM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if eq .Values.secretStore.type "OpenBao" }}
+            {{- with .Values.secretStore.openbao }}
+            - name: AGENT_REGISTRY_OPENBAO_ADDR
+              value: {{ .address | quote }}
+            - name: AGENT_REGISTRY_OPENBAO_NAMESPACE
+              value: {{ .namespace | quote }}
+            - name: AGENT_REGISTRY_OPENBAO_MOUNT
+              value: {{ .mount | quote }}
+            - name: AGENT_REGISTRY_OPENBAO_PATH_PREFIX
+              value: {{ .pathPrefix | quote }}
+            - name: AGENT_REGISTRY_OPENBAO_AUTH
+              value: {{ .auth | quote }}
+            - name: AGENT_REGISTRY_OPENBAO_AUTH_MOUNT
+              value: {{ .authMount | quote }}
+            - name: AGENT_REGISTRY_OPENBAO_ROLE
+              value: {{ .role | quote }}
+            - name: AGENT_REGISTRY_OPENBAO_TIMEOUT
+              value: {{ .timeout | quote }}
+            {{- if eq .auth "approle" }}
+            - name: AGENT_REGISTRY_OPENBAO_APPROLE_ROLE_ID_FILE
+              value: /var/run/agentregistry/openbao/approle/role-id
+            - name: AGENT_REGISTRY_OPENBAO_APPROLE_SECRET_ID_FILE
+              value: /var/run/agentregistry/openbao/approle/secret-id
+            {{- end }}
+            {{- if eq .auth "token" }}
+            - name: AGENT_REGISTRY_OPENBAO_TOKEN_FILE
+              value: /var/run/agentregistry/openbao/token/token
+            {{- end }}
+            {{- if .caSecretRef.name }}
+            - name: AGENT_REGISTRY_OPENBAO_CA_CERT_FILE
+              value: /var/run/agentregistry/openbao/ca/ca.crt
+            {{- end }}
+            {{- end }}
+            {{- end }}
             - name: AGENT_REGISTRY_SECRET_STORE_KUBERNETES_NAMESPACE
               value: {{ .Release.Namespace | quote }}
             {{- if and (eq .Values.secretStore.type "Database") .Values.secretStore.encryptionKeySecretRef.name }}
@@ -228,6 +266,25 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- end }}
           volumeMounts:
+            {{- if eq .Values.secretStore.type "OpenBao" }}
+            {{- with .Values.secretStore.openbao }}
+            {{- if eq .auth "approle" }}
+            - name: openbao-approle
+              mountPath: /var/run/agentregistry/openbao/approle
+              readOnly: true
+            {{- end }}
+            {{- if eq .auth "token" }}
+            - name: openbao-token
+              mountPath: /var/run/agentregistry/openbao/token
+              readOnly: true
+            {{- end }}
+            {{- if .caSecretRef.name }}
+            - name: openbao-ca
+              mountPath: /var/run/agentregistry/openbao/ca
+              readOnly: true
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.containerSecurityContext.enabled }}
             {{- if .Values.containerSecurityContext.readOnlyRootFilesystem }}
             - name: tmp
@@ -235,6 +292,36 @@ spec:
             {{- end }}
             {{- end }}
       volumes:
+        {{- if eq .Values.secretStore.type "OpenBao" }}
+        {{- with .Values.secretStore.openbao }}
+        {{- if eq .auth "approle" }}
+        - name: openbao-approle
+          secret:
+            secretName: {{ .appRoleSecretRef.name }}
+            items:
+              - key: {{ .appRoleSecretRef.roleIdKey }}
+                path: role-id
+              - key: {{ .appRoleSecretRef.secretIdKey }}
+                path: secret-id
+        {{- end }}
+        {{- if eq .auth "token" }}
+        - name: openbao-token
+          secret:
+            secretName: {{ .tokenSecretRef.name }}
+            items:
+              - key: {{ .tokenSecretRef.key }}
+                path: token
+        {{- end }}
+        {{- if .caSecretRef.name }}
+        - name: openbao-ca
+          secret:
+            secretName: {{ .caSecretRef.name }}
+            items:
+              - key: {{ .caSecretRef.key }}
+                path: ca.crt
+        {{- end }}
+        {{- end }}
+        {{- end }}
         {{- if .Values.containerSecurityContext.enabled }}
         {{- if .Values.containerSecurityContext.readOnlyRootFilesystem }}
         - name: tmp
