@@ -203,12 +203,25 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 		}
 	}()
 
-	if err := authWiring.applyHooks(&options, stores); err != nil {
+	auditWiring, err := buildAudit(ctx, cfg, pool, options.AuditRecorder)
+	if err != nil {
+		return fmt.Errorf("configure audit log: %w", err)
+	}
+	defer func() {
+		if err := auditWiring.shutdown(context.Background()); err != nil {
+			slog.Error("failed to flush audit exporter", "error", err)
+		}
+	}()
+
+	if err := authWiring.applyHooks(&options, stores, auditWiring.recorder); err != nil {
 		return fmt.Errorf("configure authz hooks: %w", err)
 	}
 	perKindHooks := crudPerKindHooks(options)
+	perKindHooks.Audit = auditWiring.recorder
 	wireSecretService(&perKindHooks, stores, secretStore)
 	routeOpts := buildRouteOptions(options, stores, deploymentAdapters, perKindHooks)
+	routeOpts.AuditLister = auditWiring.lister
+	routeOpts.IsRegistryAdmin = authz.IsRegistryAdmin
 
 	// Initialize HTTP server
 	baseServer, err := api.NewServer(cfg, metrics, versionInfo, options.UIHandler, authnProvider, routeOpts, options.OpenAPISchemaNamer)

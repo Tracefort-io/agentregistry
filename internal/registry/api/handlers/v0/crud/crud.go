@@ -21,6 +21,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/audit"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/resource"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/v1alpha1store"
 	"github.com/agentregistry-dev/agentregistry/pkg/types"
@@ -57,6 +58,9 @@ type PerKindHooks struct {
 	// InitialFinalizers seeds create-time finalizers per kind; see
 	// resource.Config.InitialFinalizers.
 	InitialFinalizers map[string]func(obj v1alpha1.Object) []string
+	// Audit records every apply and delete, with its outcome. Nil records
+	// nothing.
+	Audit audit.Recorder
 }
 
 // Register wires the namespace-scoped + cross-namespace list endpoints for
@@ -99,6 +103,7 @@ func Register(
 			OnUpsertError:               perKind.OnUpsertErrors[kind],
 			DeleteAdmission:             deleteAdmission,
 			InitialFinalizers:           perKind.InitialFinalizers[kind],
+			Audit:                       perKind.Audit,
 		}, true
 	}
 

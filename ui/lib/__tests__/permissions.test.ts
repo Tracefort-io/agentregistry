@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 import { createClient } from "@/lib/api/client"
-import { canFrom, loadCan, PERMISSIONS_NAMESPACE } from "../permissions"
+import { canFrom, loadCan, loadPermissions, PERMISSIONS_NAMESPACE } from "../permissions"
 
 function apiReturning(status: number, body?: unknown) {
   const fetchFn = vi.fn(async (_request: Request) => new Response(body === undefined ? null : JSON.stringify(body), {
@@ -51,5 +51,23 @@ describe("loadCan", () => {
   it("hides every action on a malformed answer", async () => {
     const can = await loadCan(apiReturning(200, { enforced: true }).api)
     expect(can("Agent", "read")).toBe(false)
+  })
+})
+
+describe("loadPermissions", () => {
+  it.each([
+    [{ enforced: true, admin: true, permissions: {} }, true],
+    [{ enforced: true, admin: false, permissions: {} }, false],
+    [{ enforced: true, permissions: {} }, false],
+  ])("reads the admin flag from %j", async (body, want) => {
+    expect((await loadPermissions(apiReturning(200, body).api)).admin).toBe(want)
+  })
+
+  it("treats a registry without /v0/me as open", async () => {
+    expect((await loadPermissions(apiReturning(404).api)).admin).toBe(true)
+  })
+
+  it("is not admin when the answer is unavailable", async () => {
+    expect((await loadPermissions(apiReturning(503).api)).admin).toBe(false)
   })
 })

@@ -14,6 +14,7 @@ import (
 	"github.com/agentregistry-dev/agentregistry/internal/registry/authz"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/config"
 	"github.com/agentregistry-dev/agentregistry/pkg/logging"
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/audit"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/auth"
 	jwtauthn "github.com/agentregistry-dev/agentregistry/pkg/registry/auth/jwt"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/authzen"
@@ -125,7 +126,7 @@ func protectedResourceMetadataURL(resource string) string {
 // options for every kind with a store, so the resource handlers, the batch
 // apply endpoint and the MCP bridge all ask the PDP, and lets the PEP answer
 // GET /v0/me. Hooks already set in options win per kind.
-func (w authWiring) applyHooks(options *types.AppOptions, stores map[string]*v1alpha1store.Store) error {
+func (w authWiring) applyHooks(options *types.AppOptions, stores map[string]*v1alpha1store.Store, recorder audit.Recorder) error {
 	if w.pdp == nil {
 		return nil
 	}
@@ -141,6 +142,7 @@ func (w authWiring) applyHooks(options *types.AppOptions, stores map[string]*v1a
 		Lister:     authz.NewStoreLister(stores),
 		ListMax:    w.listMax,
 		ExtraKinds: extra,
+		Audit:      recorder,
 	})
 	if err != nil {
 		return fmt.Errorf("create authz pep: %w", err)

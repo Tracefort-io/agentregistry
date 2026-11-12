@@ -107,3 +107,44 @@ tests:
       - equal:
           path: data.AGENT_REGISTRY_HTTP_CSP
           value: default-src 'self'
+
+  - it: renders the audit log defaults
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_AUDIT_ENABLED
+          value: "true"
+      - equal:
+          path: data.AGENT_REGISTRY_AUDIT_RETENTION
+          value: 2160h
+      - equal:
+          path: data.AGENT_REGISTRY_AUDIT_OTLP
+          value: "false"
+      - notExists:
+          path: data.OTEL_EXPORTER_OTLP_ENDPOINT
+
+  - it: renders OTLP export of audit events
+    set:
+      audit:
+        retention: 720h
+        otlp:
+          enabled: true
+          endpoint: http://otel-collector:4318
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_AUDIT_RETENTION
+          value: 720h
+      - equal:
+          path: data.AGENT_REGISTRY_AUDIT_OTLP
+          value: "true"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://otel-collector:4318
+
+  - it: turns the audit log off
+    set:
+      audit:
+        enabled: false
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_AUDIT_ENABLED
+          value: "false"

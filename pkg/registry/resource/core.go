@@ -8,6 +8,7 @@ import (
 
 	arv0 "github.com/agentregistry-dev/agentregistry/pkg/api/v0"
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/audit"
 	pkgdb "github.com/agentregistry-dev/agentregistry/pkg/registry/database"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/v1alpha1store"
 	"github.com/agentregistry-dev/agentregistry/pkg/types"
@@ -28,6 +29,8 @@ type applyOpts struct {
 	Admission         types.Admission
 	Source            string
 	Prepare           func(ctx context.Context, obj v1alpha1.Object) error
+	// Audit records the outcome; nil records nothing.
+	Audit audit.Recorder
 }
 
 // applyStage tags which step of the pipeline produced an error so
@@ -75,6 +78,23 @@ func (e *applyError) Error() string {
 // ProductionAdmission maps dry-runs to ApplyStatusDryRun and real writes to
 // Store.Upsert + PostUpsert. Returns a stage-tagged applyError on failure.
 func applyCore(
+	ctx context.Context,
+	store *v1alpha1store.Store,
+	obj v1alpha1.Object,
+	opts applyOpts,
+	dryRun bool,
+) (types.AdmissionResult, *applyError) {
+	result, ae := applyPipeline(ctx, store, obj, opts, dryRun)
+	if !dryRun {
+		meta := obj.GetMetadata()
+		recordOutcome(ctx, opts.Audit, audit.ActionApply, opts.Source, audit.Resource{
+			Kind: obj.GetKind(), Namespace: meta.Namespace, Name: meta.Name, Tag: meta.Tag,
+		}, result.Status, ae)
+	}
+	return result, ae
+}
+
+func applyPipeline(
 	ctx context.Context,
 	store *v1alpha1store.Store,
 	obj v1alpha1.Object,
@@ -246,6 +266,8 @@ type deleteOpts struct {
 	PreDeleteObject v1alpha1.Object
 	DeleteAdmission types.DeleteAdmission
 	Source          string
+	// Audit records the outcome; nil records nothing.
+	Audit audit.Recorder
 }
 
 // deleteCore runs Authorize → delete admission for a single resource.
@@ -256,6 +278,26 @@ type deleteOpts struct {
 // Returns NotFound=true on the missing-row case so callers can map it
 // to 404 (single PUT) or "not found" Result (batch).
 func deleteCore(
+	ctx context.Context,
+	store *v1alpha1store.Store,
+	kind, namespace, name, tag string,
+	opts deleteOpts,
+	dryRun bool,
+) (types.DeleteAdmissionResult, *applyError) {
+	result, ae := deletePipeline(ctx, store, kind, namespace, name, tag, opts, dryRun)
+	if !dryRun {
+		status := result.Status
+		if ae == nil && status == "" {
+			status = arv0.ApplyStatusDeleted
+		}
+		recordOutcome(ctx, opts.Audit, audit.ActionDelete, opts.Source, audit.Resource{
+			Kind: kind, Namespace: namespace, Name: name, Tag: tag,
+		}, status, ae)
+	}
+	return result, ae
+}
+
+func deletePipeline(
 	ctx context.Context,
 	store *v1alpha1store.Store,
 	kind, namespace, name, tag string,

@@ -4,11 +4,12 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
 import { useState, useSyncExternalStore } from "react"
-import { Cpu, KeyRound, LogOut, Menu, Moon, Puzzle, Rocket, Server, Sun, UserRound } from "lucide-react"
+import { Cpu, KeyRound, LogOut, Menu, Moon, Puzzle, Rocket, ScrollText, Server, Sun, UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { CATALOG_SECTIONS, useCatalogNav } from "@/lib/catalog-nav"
 import { useAuth } from "@/lib/auth"
+import { useIsAdmin } from "@/lib/permissions"
 
 // Platform resources, managed on their own pages.
 const PLATFORM_LINKS = [
@@ -16,6 +17,11 @@ const PLATFORM_LINKS = [
   { href: "/models", label: "Models", icon: <Cpu className="h-3.5 w-3.5" /> },
   { href: "/plugins", label: "Plugins", icon: <Puzzle className="h-3.5 w-3.5" /> },
   { href: "/secrets", label: "Secrets", icon: <KeyRound className="h-3.5 w-3.5" /> },
+]
+
+// Shown to registry admins only; the registry refuses everyone else anyway.
+const ADMIN_LINKS = [
+  { href: "/audit", label: "Audit log", icon: <ScrollText className="h-3.5 w-3.5" /> },
 ]
 
 const itemClass = (active: boolean) =>
@@ -36,6 +42,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false)
   const { activeTab, setActiveTab, counts } = useCatalogNav()
   const { user, signOut } = useAuth()
+  const isAdmin = useIsAdmin()
+  const platformLinks = isAdmin ? [...PLATFORM_LINKS, ...ADMIN_LINKS] : PLATFORM_LINKS
   const userName = user?.profile.preferred_username || user?.profile.name || user?.profile.email
 
   return (
@@ -85,7 +93,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <div>
           <p className="px-3 pb-2 text-xs font-semibold text-muted-foreground">Platform</p>
           <div className="space-y-0.5">
-            {PLATFORM_LINKS.map(({ href, label, icon }) => {
+            {platformLinks.map(({ href, label, icon }) => {
               const active = pathname.startsWith(href)
               return (
                 <Link key={href} href={href} onClick={onNavigate} className={itemClass(active)}>

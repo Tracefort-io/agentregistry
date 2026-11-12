@@ -51,7 +51,7 @@ func TestBuildAuthDisabledKeepsOptions(t *testing.T) {
 	assert.Nil(t, w.pdp)
 
 	options := types.AppOptions{}
-	require.NoError(t, w.applyHooks(&options, nil))
+	require.NoError(t, w.applyHooks(&options, nil, nil))
 	assert.Nil(t, options.Authorizers, "disabled mode must not install hooks")
 }
 
@@ -107,7 +107,7 @@ func TestApplyHooksCoversEveryStoreKind(t *testing.T) {
 	override := func(context.Context, types.AuthorizeInput) error { return nil }
 	options := types.AppOptions{Authorizers: map[string]types.Authorizer{v1alpha1.KindAgent: override}}
 
-	require.NoError(t, w.applyHooks(&options, stores))
+	require.NoError(t, w.applyHooks(&options, stores, nil))
 
 	for _, kind := range append([]string{"Widget"}, authz.BuiltinKinds...) {
 		assert.Contains(t, options.Authorizers, kind)
@@ -124,14 +124,14 @@ func TestApplyHooksAnswersMe(t *testing.T) {
 	stores := map[string]*v1alpha1store.Store{v1alpha1.KindAgent: {}}
 
 	options := types.AppOptions{}
-	require.NoError(t, w.applyHooks(&options, stores))
+	require.NoError(t, w.applyHooks(&options, stores, nil))
 	require.NotNil(t, options.Permissions, "the PEP answers /v0/me")
 	_, err = options.Permissions(context.Background(), "default")
 	require.ErrorIs(t, err, auth.ErrUnauthenticated, "the PEP needs a session")
 
 	custom := func(context.Context, string) (types.Permissions, error) { return types.Permissions{Admin: true}, nil }
 	options = types.AppOptions{Permissions: custom}
-	require.NoError(t, w.applyHooks(&options, stores))
+	require.NoError(t, w.applyHooks(&options, stores, nil))
 	got, err := options.Permissions(context.Background(), "default")
 	require.NoError(t, err)
 	assert.True(t, got.Admin, "a Permissions func from AppOptions wins")
@@ -148,7 +148,7 @@ func TestMCPResourceMetadata(t *testing.T) {
 		require.NoError(t, err)
 
 		options := types.AppOptions{}
-		require.NoError(t, w.applyHooks(&options, stores))
+		require.NoError(t, w.applyHooks(&options, stores, nil))
 		require.NotNil(t, options.MCPProtectedResourceMetadata)
 		meta := *options.MCPProtectedResourceMetadata
 		assert.Equal(t, "https://registry.example.com/mcp", meta.Resource)
@@ -168,7 +168,7 @@ func TestMCPResourceMetadata(t *testing.T) {
 		w, err := buildAuth(context.Background(), requiredAuthConfig(), types.AppOptions{})
 		require.NoError(t, err)
 		options := types.AppOptions{}
-		require.NoError(t, w.applyHooks(&options, stores))
+		require.NoError(t, w.applyHooks(&options, stores, nil))
 		assert.Nil(t, options.MCPProtectedResourceMetadata)
 		assert.Empty(t, options.MCPResourceMetadataURL)
 	})
@@ -180,7 +180,7 @@ func TestMCPResourceMetadata(t *testing.T) {
 		require.NoError(t, err)
 		own := &oauthex.ProtectedResourceMetadata{Resource: "https://own.example/mcp"}
 		options := types.AppOptions{MCPProtectedResourceMetadata: own, MCPResourceMetadataURL: "https://own.example/meta"}
-		require.NoError(t, w.applyHooks(&options, stores))
+		require.NoError(t, w.applyHooks(&options, stores, nil))
 		assert.Same(t, own, options.MCPProtectedResourceMetadata)
 		assert.Equal(t, "https://own.example/meta", options.MCPResourceMetadataURL)
 	})

@@ -15,6 +15,7 @@ import (
 	"github.com/agentregistry-dev/agentregistry/internal/registry/telemetry"
 	arv0 "github.com/agentregistry-dev/agentregistry/pkg/api/v0"
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/audit"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/auth"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/v1alpha1store"
 )
@@ -290,5 +291,38 @@ func TestNewHumaAPIAuthConfig(t *testing.T) {
 			require.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
 			require.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
 		})
+	}
+}
+
+type emptyAuditLister struct{}
+
+func (emptyAuditLister) ListAuditEvents(context.Context, audit.Query) ([]audit.Event, string, error) {
+	return nil, "", nil
+}
+
+// Every optional route registers alongside the others. Huma names each
+// response schema after its Go type, so two handlers with the same type name
+// (for example two "Body" types wrapped in types.Response) collide and the
+// server cannot start.
+func TestNewHumaAPIRegistersEveryOptionalRoute(t *testing.T) {
+	metrics, err := telemetry.NewMetrics(otel.GetMeterProvider().Meter("router-test"))
+	require.NoError(t, err)
+	mux := http.NewServeMux()
+	require.NotPanics(t, func() {
+		_, err = NewHumaAPI(&config.Config{}, mux, metrics, &arv0.VersionBody{}, nil, nil,
+			&RouteOptions{
+				Stores:          Stores{v1alpha1.KindPlugin: &v1alpha1store.Store{}},
+				AuditLister:     emptyAuditLister{},
+				IsRegistryAdmin: func(context.Context) bool { return true },
+			},
+			nil,
+		)
+	})
+	require.NoError(t, err)
+
+	for _, path := range []string{"/v0/me", "/v0/audit"} {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusOK, recorder.Code, path+": "+recorder.Body.String())
 	}
 }

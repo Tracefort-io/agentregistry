@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/audit"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/authzen"
 	"github.com/agentregistry-dev/agentregistry/pkg/types"
 )
@@ -119,15 +120,34 @@ func (p *PEP) Authorize(ctx context.Context, in types.AuthorizeInput) error {
 	}
 	permit, err := p.evaluate(ctx, c.subject, action, res)
 	if err != nil {
+		p.recordReadDenied(ctx, action, in, err)
 		return err
 	}
 	if permit {
 		return nil
 	}
 	if action == ActionRead {
-		return notFound(notFoundDetail(in))
+		err := notFound(notFoundDetail(in))
+		p.recordReadDenied(ctx, action, in, err)
+		return err
 	}
-	return forbidden(fmt.Sprintf("not permitted to %s %s %s", action, res.Type, res.ID))
+	err = forbidden(fmt.Sprintf("not permitted to %s %s %s", action, res.Type, res.ID))
+	p.recordReadDenied(ctx, action, in, err)
+	return err
+}
+
+// recordReadDenied records a refused read or list. Applies and deletes are
+// recorded by the resource pipeline, with their outcome.
+func (p *PEP) recordReadDenied(ctx context.Context, action string, in types.AuthorizeInput, err error) {
+	if action != ActionRead && action != ActionList {
+		return
+	}
+	audit.Record(ctx, p.audit, audit.Event{
+		Action:   action,
+		Resource: audit.Resource{Kind: in.Kind, Namespace: in.Namespace, Name: in.Name, Tag: in.Tag},
+		Outcome:  audit.OutcomeDenied,
+		Detail:   err.Error(),
+	})
 }
 
 // notFoundDetail matches the resource handler's own not-found message.

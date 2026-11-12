@@ -124,6 +124,11 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for pod assignment (overrides preset if set) |
 | args | list | `[]` | Override default container args (evaluated as a template) |
+| audit | object | `{"enabled":true,"otlp":{"enabled":false,"endpoint":""},"retention":"2160h"}` | Audit log: every apply and delete, and every read the authorization service refused, stored in Postgres and served to registry admins at GET /v0/audit and on the UI's Audit log page. |
+| audit.enabled | bool | `true` | Record audit events. |
+| audit.otlp | object | `{"enabled":false,"endpoint":""}` | Also export each event as an OpenTelemetry log record over OTLP/HTTP. |
+| audit.otlp.endpoint | string | `""` | Collector base URL, for example http://otel-collector:4318. Sets OTEL_EXPORTER_OTLP_ENDPOINT; add headers or TLS settings through extraEnvVars (OTEL_EXPORTER_OTLP_HEADERS, ...). |
+| audit.retention | string | `"2160h"` | How long events are kept; 0s keeps them forever. |
 | auth | object | `{"authzen":{"cacheTTL":"5s","clientId":"","clientSecretRef":{"key":"client-secret","name":""},"listMax":1000,"scopes":[],"staticTokenRef":{"key":"token","name":""},"timeout":"1500ms","tokenUrl":"","url":""},"clockSkew":"30s","issuers":[],"jwksRefresh":"5m","mcp":{"resource":"","scopes":[]},"mode":"disabled","openPaths":["/health","/ping","/version"],"ui":{"clientId":"","issuer":"","scopes":"openid profile email"}}` | Authentication (JWT) and authorization (an OpenID AuthZEN 1.0 PDP). Settings are rendered into the ConfigMap; credentials come only from existing Secrets. See docs/auth/authzen-contract.md. |
 | auth.authzen.cacheTTL | string | `"5s"` | How long permit decisions are cached. 0 disables caching. |
 | auth.authzen.listMax | int | `1000` | Maximum rows a list request authorizes. |

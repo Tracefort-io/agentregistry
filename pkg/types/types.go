@@ -13,6 +13,7 @@ import (
 
 	v0 "github.com/agentregistry-dev/agentregistry/pkg/api/v0"
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/audit"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/auth"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/database"
 	"github.com/agentregistry-dev/agentregistry/pkg/secret"
@@ -396,6 +397,11 @@ type AppOptions struct {
 	// required, and otherwise reports every action as allowed. Supply it with
 	// custom Authorizers so the two agree.
 	Permissions PermissionsFunc
+
+	// AuditRecorder receives every audit event (applies, deletes, refused
+	// reads) in addition to the built-in audit log, for example to forward
+	// them to another system. It must not block.
+	AuditRecorder audit.Recorder
 
 	// InitialFinalizers seeds finalizers atomically on create for kinds
 	// whose external teardown must be protected from a concurrent delete.

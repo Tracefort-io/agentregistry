@@ -23,6 +23,9 @@ func Validate(cfg *Config) error {
 	if err := validateHTTP(cfg); err != nil {
 		return err
 	}
+	if cfg.AuditRetention < 0 {
+		return fmt.Errorf("audit retention must be non-negative")
+	}
 	return validateAuth(cfg)
 }
 

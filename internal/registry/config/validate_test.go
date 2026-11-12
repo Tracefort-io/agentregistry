@@ -144,3 +144,15 @@ func TestValidate_HTTP(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_Audit(t *testing.T) {
+	if err := Validate(&Config{AuditEnabled: true, AuditRetention: 90 * 24 * time.Hour}); err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if err := Validate(&Config{AuditRetention: 0}); err != nil {
+		t.Fatalf("zero retention keeps events forever; Validate() = %v", err)
+	}
+	if err := Validate(&Config{AuditRetention: -time.Hour}); err == nil {
+		t.Fatal("negative retention must be rejected")
+	}
+}

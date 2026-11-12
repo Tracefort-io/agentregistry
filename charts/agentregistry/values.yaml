@@ -72,6 +72,24 @@ http:
   # own origin plus the sign-in service's (auth.ui.issuer).
   contentSecurityPolicy: ""
 
+# @section Audit log
+
+# -- Audit log: every apply and delete, and every read the authorization
+# service refused, stored in Postgres and served to registry admins at
+# GET /v0/audit and on the UI's Audit log page.
+audit:
+  # -- Record audit events.
+  enabled: true
+  # -- How long events are kept; 0s keeps them forever.
+  retention: 2160h
+  # -- Also export each event as an OpenTelemetry log record over OTLP/HTTP.
+  otlp:
+    enabled: false
+    # -- Collector base URL, for example http://otel-collector:4318. Sets
+    # OTEL_EXPORTER_OTLP_ENDPOINT; add headers or TLS settings through
+    # extraEnvVars (OTEL_EXPORTER_OTLP_HEADERS, ...).
+    endpoint: ""
+
 # @section Authentication and authorization
 
 # -- Authentication (JWT) and authorization (an OpenID AuthZEN 1.0 PDP). Settings

@@ -9,6 +9,7 @@ import (
 
 	arv0 "github.com/agentregistry-dev/agentregistry/pkg/api/v0"
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/audit"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/v1alpha1store"
 	"github.com/agentregistry-dev/agentregistry/pkg/types"
 )
@@ -65,6 +66,9 @@ type ApplyConfig struct {
 	// Source labels the producer of objects entering this apply pipeline.
 	// Empty defaults to types.AdmissionSourceApply.
 	Source string
+
+	// Audit records each document's outcome. Nil records nothing.
+	Audit audit.Recorder
 
 	// Admission optionally owns the final apply write. Nil uses
 	// ProductionAdmission, which writes to the configured production Store.
@@ -223,6 +227,7 @@ func applyOne(ctx context.Context, cfg ApplyConfig, obj v1alpha1.Object, namespa
 		Admission:         cfg.Admission,
 		Source:            cfg.Source,
 		Prepare:           cfg.Prepare,
+		Audit:             cfg.Audit,
 	}, dryRun)
 	if ae != nil {
 		return failResult(res, ae)
@@ -265,6 +270,7 @@ func deleteOne(ctx context.Context, cfg ApplyConfig, obj v1alpha1.Object, namesp
 		PreDeleteObject: obj,
 		DeleteAdmission: cfg.DeleteAdmission,
 		Source:          cfg.Source,
+		Audit:           cfg.Audit,
 	}, dryRun)
 	if ae != nil {
 		return failResult(res, ae)

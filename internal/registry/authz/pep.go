@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/agentregistry-dev/agentregistry/pkg/logging"
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/audit"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/auth"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/authzen"
 )
@@ -47,6 +48,8 @@ type Config struct {
 	ExtraKinds []string
 	// Logger overrides the package logger.
 	Logger *slog.Logger
+	// Audit records refused reads and lists. Nil records nothing.
+	Audit audit.Recorder
 }
 
 // PEP enforces PDP decisions. It is safe for concurrent use.
@@ -57,6 +60,7 @@ type PEP struct {
 	searchMax int
 	kinds     []string
 	log       *slog.Logger
+	audit     audit.Recorder
 
 	// missingIdentity logs the first session refused for lacking an identity.
 	missingIdentity sync.Once
@@ -77,6 +81,7 @@ func New(cfg Config) (*PEP, error) {
 		searchMax: cfg.SearchMax,
 		kinds:     append(append([]string{}, BuiltinKinds...), cfg.ExtraKinds...),
 		log:       cfg.Logger,
+		audit:     cfg.Audit,
 	}
 	if p.listMax <= 0 {
 		p.listMax = defaultListMax

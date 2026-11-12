@@ -139,6 +139,19 @@ type Config struct {
 	// default it allows the registry's own origin and AuthUIIssuer's.
 	HTTPCSP string `env:"HTTP_CSP" envDefault:""`
 
+	// Audit log
+	//
+	// AuditEnabled records every apply and delete, and every read the
+	// authorization service refused, in the audit_events table, served to
+	// registry admins at GET /v0/audit.
+	AuditEnabled bool `env:"AUDIT_ENABLED" envDefault:"true"`
+	// AuditRetention is how long events are kept; 0 keeps them forever.
+	AuditRetention time.Duration `env:"AUDIT_RETENTION" envDefault:"2160h"`
+	// AuditOTLP also exports each event as an OpenTelemetry log record over
+	// OTLP/HTTP, configured by the standard OTEL_EXPORTER_OTLP_* variables
+	// (for example OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318).
+	AuditOTLP bool `env:"AUDIT_OTLP" envDefault:"false"`
+
 	// Authorization (OpenID AuthZEN 1.0 PDP)
 	//
 	// AuthzenURL is the PDP base URL; endpoints are discovered from

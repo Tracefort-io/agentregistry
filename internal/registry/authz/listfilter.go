@@ -57,10 +57,13 @@ func (p *PEP) ListFilter(ctx context.Context, in types.AuthorizeInput) (string, 
 	res := listResource(in.Kind, in.Namespace)
 	permit, err := p.evaluate(ctx, c.subject, ActionList, res)
 	if err != nil {
+		p.recordReadDenied(ctx, ActionList, in, err)
 		return "", nil, err
 	}
 	if !permit {
-		return "", nil, forbidden(fmt.Sprintf("not permitted to %s %s %s", ActionList, res.Type, res.ID))
+		err := forbidden(fmt.Sprintf("not permitted to %s %s %s", ActionList, res.Type, res.ID))
+		p.recordReadDenied(ctx, ActionList, in, err)
+		return "", nil, err
 	}
 
 	search, err := p.client.SupportsResourceSearch(ctx)

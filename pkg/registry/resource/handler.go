@@ -31,6 +31,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/audit"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/auth"
 	pkgdb "github.com/agentregistry-dev/agentregistry/pkg/registry/database"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/v1alpha1store"
@@ -112,6 +113,9 @@ type Config struct {
 	// removal. Built-in Deployment teardown is controller-owned and does not
 	// use this hook.
 	PostDelete func(ctx context.Context, obj v1alpha1.Object) error
+
+	// Audit records each apply's and delete's outcome. Nil records nothing.
+	Audit audit.Recorder
 
 	// Prepare is optional; when set, the apply handler invokes it after
 	// validation (refs/registries) and before admission/Store.Upsert, so
@@ -524,6 +528,7 @@ func registerApplyMutable[T v1alpha1.Object](api huma.API, cfg Config, newObj fu
 			InitialFinalizers: cfg.InitialFinalizers,
 			Prepare:           cfg.Prepare,
 			OnUpsertError:     cfg.OnUpsertError,
+			Audit:             cfg.Audit,
 		}, false); ae != nil {
 			return nil, mapApplyErrorToHuma(ae, kind, ns, name, "")
 		}
@@ -585,7 +590,7 @@ func registerDelete[T v1alpha1.Object](api huma.API, cfg Config, newObj func() T
 }
 
 func runDeleteLatest[T v1alpha1.Object](ctx context.Context, cfg Config, newObj func() T, kind, ns, name string) (*deleteOutput, error) {
-	dopts := deleteOpts{Authorize: cfg.Authorize}
+	dopts := deleteOpts{Authorize: cfg.Authorize, Audit: cfg.Audit}
 	if cfg.PostDelete != nil {
 		dopts.PostDelete = cfg.PostDelete
 	}
@@ -641,6 +646,7 @@ func runDelete[T v1alpha1.Object](ctx context.Context, cfg Config, newObj func()
 	dopts := deleteOpts{
 		Authorize:       cfg.Authorize,
 		PreDeleteObject: preDelete,
+		Audit:           cfg.Audit,
 	}
 	if cfg.PostDelete != nil {
 		dopts.PostDelete = cfg.PostDelete

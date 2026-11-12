@@ -15,6 +15,7 @@ The built-in mode authenticates JWTs from the configured issuers and asks an Aut
 | Apply a Deployment | `PUT /v0/deployments/{name}`, `POST /v0/apply` | `deploy` on the target, `read` on the Runtime, `apply` on the Deployment, `read` on its Model and every `deploymentRefs` entry | `403` |
 | Deployment logs | `GET /v0/deployments/{name}/logs` | `read` on `deployment` `<ns>/<name>` | `404` |
 | Caller's permissions | `GET /v0/me` | `admin` on `registry`, and every kind's actions on `<ns>/*` | needs a token |
+| Audit log | `GET /v0/audit` | `admin` on `registry` | `403` |
 
 A PDP that cannot answer in time is a `503`, and counts as a denial. Internal reconciliation runs as a system session and does not ask the PDP.
 

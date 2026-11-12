@@ -11,6 +11,7 @@ import (
 
 	mcpregistrycompat "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/mcpregistry"
 	pluginmarketplacecompat "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/pluginmarketplace"
+	v0auditlog "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/auditlog"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/crud"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/deploymentlogs"
 	v0health "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/health"
@@ -23,6 +24,7 @@ import (
 	arv0 "github.com/agentregistry-dev/agentregistry/pkg/api/v0"
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1/registries"
+	"github.com/agentregistry-dev/agentregistry/pkg/registry/audit"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/resource"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/v1alpha1store"
 	"github.com/agentregistry-dev/agentregistry/pkg/types"
@@ -100,6 +102,11 @@ type RouteOptions struct {
 	// Permissions answers GET /v0/me. Nil reports every action as allowed,
 	// for a registry without authorization.
 	Permissions types.PermissionsFunc
+
+	// AuditLister serves GET /v0/audit to callers IsRegistryAdmin accepts.
+	// Nil leaves the endpoint out.
+	AuditLister     audit.Lister
+	IsRegistryAdmin func(ctx context.Context) bool
 }
 
 // RegisterRoutes registers all API routes under /v0. Required
@@ -129,6 +136,12 @@ func RegisterRoutes(
 		Permissions: opts.Permissions,
 		Kinds:       slices.Collect(maps.Keys(opts.Stores)),
 	})
+	if opts.AuditLister != nil {
+		v0auditlog.Register(api, pathPrefix, v0auditlog.Config{
+			Lister:  opts.AuditLister,
+			IsAdmin: opts.IsRegistryAdmin,
+		})
+	}
 
 	// v1alpha1 generic routes. Cross-kind dangling-ref detection uses
 	// a Store-backed resolver. Deployment side effects are handled by
@@ -272,6 +285,7 @@ func registerKindRoutes(
 		Admission:         admission,
 		DeleteAdmission:   deleteAdmission,
 		Prepare:           applyPrepare,
+		Audit:             perKind.Audit,
 	}
 	productionApplyCfg := applyCfg
 	productionApplyCfg.Admission = resource.ProductionAdmission

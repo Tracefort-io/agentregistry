@@ -14,6 +14,14 @@ data:
   AGENT_REGISTRY_SERVER_ADDRESS: {{ .Values.config.serverAddress | quote }}
   AGENT_REGISTRY_MCP_PORT: {{ .Values.config.agentRegistryMcpPort | quote }}
   AGENT_REGISTRY_ENABLE_REGISTRY_VALIDATION: {{ .Values.config.enableRegistryValidation | quote }}
+  {{- with .Values.audit }}
+  AGENT_REGISTRY_AUDIT_ENABLED: {{ .enabled | quote }}
+  AGENT_REGISTRY_AUDIT_RETENTION: {{ .retention | quote }}
+  AGENT_REGISTRY_AUDIT_OTLP: {{ .otlp.enabled | quote }}
+  {{- if and .otlp.enabled .otlp.endpoint }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .otlp.endpoint | quote }}
+  {{- end }}
+  {{- end }}
   {{- with .Values.http }}
   {{- with .corsAllowedOrigins }}
   AGENT_REGISTRY_CORS_ALLOWED_ORIGINS: {{ join "," . | quote }}

@@ -35,6 +35,7 @@ Scope: the registry API, web UI and MCP endpoint with `AGENT_REGISTRY_AUTH_MODE=
 | Script injection or clickjacking in the web UI | The UI is served with a Content-Security-Policy allowing only its own origin and the sign-in service, no framing (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), and no plugins. Every response sends `nosniff` and `Referrer-Policy: no-referrer`; HSTS when `HTTP_HSTS_MAX_AGE` is set. | `internal/registry/api/hardening.go` |
 | Exhausting the server with slow or large requests | Read, write and idle timeouts on the API server (read and idle on the streaming MCP server); request bodies over `HTTP_MAX_BODY_BYTES` are refused with `413`. | `internal/registry/api`, `internal/registry/registry_app.go` |
 | Changing log levels remotely | `/logging` is localhost-only and, with auth required, also needs a token. | `internal/registry/api/router` |
+| Denying what was done | Every apply and delete, with its outcome (success, denied, failure), and every refused read or list is recorded with the caller's subject, issuer, username, delegation chain and request ID. Records are append-only (a trigger refuses updates and truncation), readable only by registry admins (`GET /v0/audit`), kept for `AUDIT_RETENTION`, and can be exported over OTLP to a store the registry cannot change. Secret values are never recorded. | `pkg/registry/audit`, `pkg/registry/v1alpha1store/audit_events.go` |
 | Tracing a decision | Every request carries an `X-Request-ID`, sent to the PDP, so registry logs and decision logs can be joined. | `internal/registry/api/router` |
 
 ## Residual risks
@@ -51,4 +52,6 @@ Scope: the registry API, web UI and MCP endpoint with `AGENT_REGISTRY_AUTH_MODE=
 - **Internal system sessions** (controllers, reconciliation) skip the PDP by design.
 - **Static PDP tokens** (`AUTHZEN_STATIC_TOKEN`) are shared secrets; prefer OAuth client credentials.
 - **The UI's policy allows inline scripts.** Next.js inlines its bootstrap code, so `script-src` includes `'unsafe-inline'`; the policy still blocks scripts from any other origin.
-- **No audit log yet.** Decisions are logged, but there is no tamper-evident record of who changed what.
+- **The audit table is append-only, not tamper-proof.** Whoever holds the database credentials can drop the trigger or delete rows. Export events over OTLP (`AUDIT_OTLP`) to a store the registry cannot write to when that matters.
+- **Audit writes do not block operations.** An event that cannot be stored is logged as an error; the operation it describes has already taken effect.
+- **The registry's own work is not audited.** Controllers and reconciliation run as the system and are not recorded.
