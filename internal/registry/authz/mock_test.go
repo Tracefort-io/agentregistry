@@ -13,13 +13,15 @@ var errPDPDown = errors.New("pdp down")
 
 // mockPDP is a Decider whose decisions come from decide.
 type mockPDP struct {
-	mu        sync.Mutex
-	decide    func(authzen.EvaluationRequest) bool
-	err       error // returned by Evaluate / Evaluations / search
-	shortBy   int   // drop this many decisions from batch responses
-	search    bool
-	searchErr error
-	results   []authzen.Resource
+	mu     sync.Mutex
+	decide func(authzen.EvaluationRequest) bool
+	// respContext, when set, supplies each response's context.
+	respContext func(authzen.EvaluationRequest) map[string]any
+	err         error // returned by Evaluate / Evaluations / search
+	shortBy     int   // drop this many decisions from batch responses
+	search      bool
+	searchErr   error
+	results     []authzen.Resource
 	// resultsErr fails SearchResources only.
 	resultsErr error
 
@@ -44,7 +46,14 @@ func (m *mockPDP) Evaluate(_ context.Context, req authzen.EvaluationRequest) (au
 	if m.err != nil {
 		return authzen.EvaluationResponse{}, m.err
 	}
-	return authzen.EvaluationResponse{Decision: m.decide(req)}, nil
+	return authzen.EvaluationResponse{Decision: m.decide(req), Context: m.contextFor(req)}, nil
+}
+
+func (m *mockPDP) contextFor(req authzen.EvaluationRequest) map[string]any {
+	if m.respContext == nil {
+		return nil
+	}
+	return m.respContext(req)
 }
 
 func (m *mockPDP) Evaluations(_ context.Context, req authzen.EvaluationsRequest) (authzen.EvaluationsResponse, error) {
@@ -61,7 +70,7 @@ func (m *mockPDP) Evaluations(_ context.Context, req authzen.EvaluationsRequest)
 			return authzen.EvaluationsResponse{}, err
 		}
 		d := m.decide(item)
-		out = append(out, authzen.EvaluationResponse{Decision: d})
+		out = append(out, authzen.EvaluationResponse{Decision: d, Context: m.contextFor(item)})
 		if req.Semantic() == authzen.DenyOnFirstDeny && !d {
 			break
 		}

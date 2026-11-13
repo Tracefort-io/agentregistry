@@ -46,6 +46,7 @@ func TestDeploymentListFiltersPersistedDiscoveredRows(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 
 	all := listDeploymentsForDiscoveryTest(t, api, "/v0/deployments")

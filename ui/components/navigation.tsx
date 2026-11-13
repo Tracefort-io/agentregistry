@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
 import { useState, useSyncExternalStore } from "react"
-import { Cpu, KeyRound, LogOut, Menu, Moon, Puzzle, Rocket, ScrollText, Server, Sun, UserRound } from "lucide-react"
+import { ClipboardCheck, Cpu, KeyRound, LogOut, Menu, Moon, Puzzle, Rocket, ScrollText, Server, Sun, UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { CATALOG_SECTIONS, useCatalogNav } from "@/lib/catalog-nav"
@@ -17,6 +17,12 @@ const PLATFORM_LINKS = [
   { href: "/models", label: "Models", icon: <Cpu className="h-3.5 w-3.5" /> },
   { href: "/plugins", label: "Plugins", icon: <Puzzle className="h-3.5 w-3.5" /> },
   { href: "/secrets", label: "Secrets", icon: <KeyRound className="h-3.5 w-3.5" /> },
+]
+
+// Shown to signed-in users: everyone follows their own held changes, and
+// approvers review others'.
+const SIGNED_IN_LINKS = [
+  { href: "/approvals", label: "Approvals", icon: <ClipboardCheck className="h-3.5 w-3.5" /> },
 ]
 
 // Shown to registry admins only; the registry refuses everyone else anyway.
@@ -43,7 +49,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { activeTab, setActiveTab, counts } = useCatalogNav()
   const { user, signOut } = useAuth()
   const isAdmin = useIsAdmin()
-  const platformLinks = isAdmin ? [...PLATFORM_LINKS, ...ADMIN_LINKS] : PLATFORM_LINKS
+  const platformLinks = [...PLATFORM_LINKS, ...(user ? SIGNED_IN_LINKS : []), ...(isAdmin ? ADMIN_LINKS : [])]
   const userName = user?.profile.preferred_username || user?.profile.name || user?.profile.email
 
   return (

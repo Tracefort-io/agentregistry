@@ -98,18 +98,26 @@ func New(cfg Config) (*PEP, error) {
 // evaluate asks for one decision and logs it. A PDP failure is a 503; a
 // denial returns (false, nil) so the caller picks 403 or 404.
 func (p *PEP) evaluate(ctx context.Context, subject authzen.Subject, action string, res authzen.Resource) (bool, error) {
-	resp, err := p.client.Evaluate(ctx, authzen.EvaluationRequest{
+	resp, _, err := p.decide(ctx, subject, action, res, requestContext(ctx))
+	return resp.Decision, err
+}
+
+// decide is evaluate with the request context given, returning the full
+// response and the request sent, for denials that may be approved.
+func (p *PEP) decide(ctx context.Context, subject authzen.Subject, action string, res authzen.Resource, reqCtx authzen.Context) (authzen.EvaluationResponse, authzen.EvaluationRequest, error) {
+	req := authzen.EvaluationRequest{
 		Subject:  subject,
 		Action:   authzen.Action{Name: action},
 		Resource: res,
-		Context:  requestContext(ctx),
-	})
+		Context:  reqCtx,
+	}
+	resp, err := p.client.Evaluate(ctx, req)
 	if err != nil {
 		p.logError(ctx, subject, action, res, err)
-		return false, unavailable(err)
+		return authzen.EvaluationResponse{}, req, unavailable(err)
 	}
 	p.logDecision(ctx, subject, action, res, resp.Decision)
-	return resp.Decision, nil
+	return resp, req, nil
 }
 
 func (p *PEP) logDecision(ctx context.Context, subject authzen.Subject, action string, res authzen.Resource, permit bool) {

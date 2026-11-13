@@ -99,5 +99,5 @@ func requestContext(ctx context.Context) authzen.Context {
 	if id := strings.TrimSpace(authzen.RequestIDFrom(ctx)); id != "" {
 		c["request_id"] = id
 	}
-	return c
+	return withApproval(ctx, c)
 }

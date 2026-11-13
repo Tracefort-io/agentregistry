@@ -118,12 +118,16 @@ func (p *PEP) Authorize(ctx context.Context, in types.AuthorizeInput) error {
 	} else {
 		res = objectResource(in.Kind, in.Namespace, in.Name, in.Tag)
 	}
-	permit, err := p.evaluate(ctx, c.subject, action, res)
+	reqCtx := requestContext(ctx)
+	if action == ActionApply {
+		reqCtx = withDocument(reqCtx, in.Object)
+	}
+	resp, req, err := p.decide(ctx, c.subject, action, res, reqCtx)
 	if err != nil {
 		p.recordReadDenied(ctx, action, in, err)
 		return err
 	}
-	if permit {
+	if resp.Decision {
 		return nil
 	}
 	if action == ActionRead {
@@ -131,7 +135,13 @@ func (p *PEP) Authorize(ctx context.Context, in types.AuthorizeInput) error {
 		p.recordReadDenied(ctx, action, in, err)
 		return err
 	}
-	err = forbidden(fmt.Sprintf("not permitted to %s %s %s", action, res.Type, res.ID))
+	detail := fmt.Sprintf("%s %s %s", action, res.Type, res.ID)
+	if action == ActionApply || action == ActionDelete {
+		if approval := requestable(req, resp.Context, detail); approval != nil {
+			return approval
+		}
+	}
+	err = forbidden("not permitted to " + detail)
 	p.recordReadDenied(ctx, action, in, err)
 	return err
 }

@@ -10,7 +10,8 @@
 # Roles are read from subject.properties.roles and .groups (Keycloak group
 # paths such as "/registry-admin" are accepted):
 #   registry-admin   everything, including the registry-wide "admin" check
-#   registry-writer  read, list, apply, delete and deploy registry resources
+#   registry-writer  read, list, apply, delete and deploy registry resources;
+#                    publishing and deploying need an approval (approvals.rego)
 #   registry-reader  read and list registry resources, except Secrets
 # Anonymous callers are allowed nothing. Clients (client-credentials tokens)
 # get exactly what their roles allow.
@@ -59,6 +60,7 @@ allow if {
 	"registry-writer" in roles
 	registry_resource
 	input.action.name in writer_actions
+	not needs_approval
 }
 
 allow if {

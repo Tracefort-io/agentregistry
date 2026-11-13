@@ -212,4 +212,7 @@ type Metadata struct {
 	SearchSubjectEndpoint     string `json:"search_subject_endpoint,omitempty"`
 	SearchResourceEndpoint    string `json:"search_resource_endpoint,omitempty"`
 	SearchActionEndpoint      string `json:"search_action_endpoint,omitempty"`
+	// AccessRequestEndpoint is where access requests are submitted (Access
+	// Request and Approval Profile); empty when the PDP offers none.
+	AccessRequestEndpoint string `json:"access_request_endpoint,omitempty"`
 }

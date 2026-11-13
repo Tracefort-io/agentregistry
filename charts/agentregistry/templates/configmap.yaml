@@ -21,6 +21,21 @@ data:
   AGENT_REGISTRY_LEADER_ELECTION_RENEW_DEADLINE: {{ .renewDeadline | quote }}
   AGENT_REGISTRY_LEADER_ELECTION_RETRY_PERIOD: {{ .retryPeriod | quote }}
   {{- end }}
+  {{- with .Values.approvals }}
+  {{- if .enabled }}
+  AGENT_REGISTRY_APPROVALS_ENABLED: "true"
+  AGENT_REGISTRY_APPROVALS_TOKEN_URL: {{ .tokenUrl | quote }}
+  AGENT_REGISTRY_APPROVALS_CLIENT_ID: {{ .clientId | quote }}
+  AGENT_REGISTRY_APPROVALS_POLL_INTERVAL: {{ .pollInterval | quote }}
+  {{- with .scopes }}
+  AGENT_REGISTRY_APPROVALS_SCOPES: {{ join "," . | quote }}
+  {{- end }}
+  {{- with .callback.url }}
+  AGENT_REGISTRY_APPROVALS_CALLBACK_URL: {{ . | quote }}
+  AGENT_REGISTRY_APPROVALS_CALLBACK_SECRET_FILE: /var/run/agentregistry/approvals/callback-secret
+  {{- end }}
+  {{- end }}
+  {{- end }}
   {{- with .Values.audit }}
   AGENT_REGISTRY_AUDIT_ENABLED: {{ .enabled | quote }}
   AGENT_REGISTRY_AUDIT_RETENTION: {{ .retention | quote }}

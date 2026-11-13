@@ -51,7 +51,7 @@ func (p *PEP) authorizeDeploymentApply(ctx context.Context, subject authzen.Subj
 	}
 	req := authzen.EvaluationsRequest{
 		Subject:     &subject,
-		Context:     requestContext(ctx),
+		Context:     withDocument(requestContext(ctx), in.Object),
 		Options:     &authzen.EvaluationsOptions{EvaluationsSemantic: authzen.DenyOnFirstDeny},
 		Evaluations: make([]authzen.EvaluationItem, len(checks)),
 	}
@@ -77,7 +77,13 @@ func (p *PEP) authorizeDeploymentApply(ctx context.Context, subject authzen.Subj
 		permit := resp.Evaluations[i].Decision
 		p.logDecision(ctx, subject, check.action, check.res, permit)
 		if !permit {
-			return forbidden(fmt.Sprintf("not permitted to %s %s %s", check.action, check.res.Type, check.res.ID))
+			detail := fmt.Sprintf("%s %s %s", check.action, check.res.Type, check.res.ID)
+			if item, err := req.Expand(i); err == nil {
+				if approval := requestable(item, resp.Evaluations[i].Context, detail); approval != nil {
+					return approval
+				}
+			}
+			return forbidden("not permitted to " + detail)
 		}
 	}
 	return nil

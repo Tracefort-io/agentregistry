@@ -367,6 +367,22 @@ Called from templates/validate.yaml so it fires during helm template/install.
 {{- end }}
 {{- end }}
 {{- end }}
+{{- with .Values.approvals }}
+{{- if .enabled }}
+{{- if ne $.Values.auth.mode "required" }}
+{{- $errors = append $errors "approvals.enabled needs auth.mode=required: approvals are decided by the AuthZEN PDP." }}
+{{- end }}
+{{- if or (not .tokenUrl) (not .clientId) (not .clientSecretRef.name) }}
+{{- $errors = append $errors "approvals.enabled needs approvals.tokenUrl, approvals.clientId and approvals.clientSecretRef.name." }}
+{{- end }}
+{{- if and .callback.url (not .callback.secretRef.name) }}
+{{- $errors = append $errors "approvals.callback.url needs approvals.callback.secretRef.name." }}
+{{- end }}
+{{- if and .callback.url (not (hasPrefix "https://" .callback.url)) }}
+{{- $errors = append $errors "approvals.callback.url must be https: the access request service only calls https." }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- with .Values.leaderElection }}
 {{- if not (has .mechanism (list "postgres" "kubernetes" "none")) }}
 {{- $errors = append $errors (printf "leaderElection.mechanism must be \"postgres\", \"kubernetes\" or \"none\" (got %q)." .mechanism) }}

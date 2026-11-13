@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"net/http"
 	"slices"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	mcpregistrycompat "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/mcpregistry"
 	pluginmarketplacecompat "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/pluginmarketplace"
+	v0approvals "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/approvals"
 	v0auditlog "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/auditlog"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/crud"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/deploymentlogs"
@@ -107,6 +109,24 @@ type RouteOptions struct {
 	// Nil leaves the endpoint out.
 	AuditLister     audit.Lister
 	IsRegistryAdmin func(ctx context.Context) bool
+
+	// Approvals holds batch-apply writes that need approval and applies
+	// them once approved; ApprovalsAPI serves /v0/approvals and
+	// /v0/approval-reviews. Nil leaves approvals off.
+	Approvals    Approvals
+	ApprovalsAPI v0approvals.Service
+	// ApprovalsCallback receives the access request service's signed
+	// notices at POST /approvals/callback. It authenticates them by HMAC,
+	// not by a token. Nil leaves the route out.
+	ApprovalsCallback http.Handler
+}
+
+// Approvals holds writes that need approval. Bind hands it the production
+// apply and delete paths for approved changes; those paths do not stage
+// again, so an approval that does not verify fails instead of looping.
+type Approvals interface {
+	types.ApprovalStager
+	Bind(apply, del func(ctx context.Context, obj v1alpha1.Object) arv0.ApplyResult)
 }
 
 // RegisterRoutes registers all API routes under /v0. Required
@@ -157,7 +177,11 @@ func RegisterRoutes(
 		opts.DeleteAdmission,
 		opts.ResolverWrapper,
 		opts.ExtraResourceRoutes,
+		opts.Approvals,
 	)
+	if opts.ApprovalsAPI != nil {
+		v0approvals.Register(api, pathPrefix, v0approvals.Config{Service: opts.ApprovalsAPI, IsAdmin: opts.IsRegistryAdmin})
+	}
 
 	if opts.ExtraRoutes != nil {
 		opts.ExtraRoutes(api, pathPrefix)
@@ -232,6 +256,7 @@ func registerKindRoutes(
 	deleteAdmission types.DeleteAdmission,
 	resolverWrapper func(v1alpha1.ResolverFunc) v1alpha1.ResolverFunc,
 	extraResourceRoutes func(api huma.API, pathPrefix string, ctx types.ResourceRouteContext),
+	approvals Approvals,
 ) resource.ApplyConfig {
 	resolver := internaldb.NewResolver(stores)
 	if resolverWrapper != nil {
@@ -291,6 +316,19 @@ func registerKindRoutes(
 	productionApplyCfg.Admission = resource.ProductionAdmission
 	productionDeleteCfg := applyCfg
 	productionDeleteCfg.DeleteAdmission = resource.ProductionDeleteAdmission
+	if approvals != nil {
+		// Approved changes go through the same pipeline, without staging.
+		approved := applyCfg
+		approvals.Bind(
+			func(ctx context.Context, obj v1alpha1.Object) arv0.ApplyResult {
+				return resource.ApplyObject(ctx, approved, obj, false)
+			},
+			func(ctx context.Context, obj v1alpha1.Object) arv0.ApplyResult {
+				return resource.DeleteObject(ctx, approved, obj, false)
+			},
+		)
+		applyCfg.Approvals = approvals
+	}
 	resource.RegisterApply(api, applyCfg)
 
 	if extraResourceRoutes != nil {

@@ -123,6 +123,11 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for pod assignment (overrides preset if set) |
+| approvals | object | `{"callback":{"secretRef":{"key":"secret","name":""},"url":""},"clientId":"","clientSecretRef":{"key":"client-secret","name":""},"enabled":false,"pollInterval":"15s","scopes":[],"tokenUrl":""}` | Approval workflows for publish and deploy (OpenID AuthZEN Access Request and Approval Profile). A batch-apply change the PDP refuses but marks requestable is held, submitted to the PDP's access request service, and applied by the registry once approved. Which changes need approval and who approves them is the PDP policy's decision. Needs auth.mode=required. See docs/approvals.md. |
+| approvals.callback | object | `{"secretRef":{"key":"secret","name":""},"url":""}` | Optional: the https URL of this registry's POST /approvals/callback, which the service calls when a request ends, and an existing Secret with the shared HMAC secret (at least 32 bytes). |
+| approvals.clientSecretRef | object | `{"key":"client-secret","name":""}` | Existing Secret holding the client secret. |
+| approvals.pollInterval | string | `"15s"` | How often held requests are checked. |
+| approvals.tokenUrl | string | `""` | The registry's OAuth client (client credentials), accepted by the access request service's caller_auth. |
 | args | list | `[]` | Override default container args (evaluated as a template) |
 | audit | object | `{"enabled":true,"otlp":{"enabled":false,"endpoint":""},"retention":"2160h"}` | Audit log: every apply and delete, and every read the authorization service refused, stored in Postgres and served to registry admins at GET /v0/audit and on the UI's Audit log page. |
 | audit.enabled | bool | `true` | Record audit events. |

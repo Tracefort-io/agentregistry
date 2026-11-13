@@ -32,6 +32,9 @@ func Validate(cfg *Config) error {
 	if err := validateOpenBao(cfg); err != nil {
 		return err
 	}
+	if err := validateApprovals(cfg); err != nil {
+		return err
+	}
 	return validateAuth(cfg)
 }
 
@@ -203,6 +206,33 @@ func validateOpenBao(cfg *Config) error {
 		}
 	default:
 		return fmt.Errorf("OPENBAO_AUTH must be kubernetes, approle or token, got %q", cfg.OpenBaoAuth)
+	}
+	return nil
+}
+
+// validateApprovals checks the approvals settings when they are on.
+func validateApprovals(cfg *Config) error {
+	if !cfg.ApprovalsEnabled {
+		return nil
+	}
+	if cfg.AuthMode != AuthModeRequired {
+		return fmt.Errorf("APPROVALS_ENABLED needs AUTH_MODE=required: approvals are decided by the AuthZEN PDP")
+	}
+	if !isHTTPURL(cfg.ApprovalsTokenURL) || cfg.ApprovalsClientID == "" ||
+		(cfg.ApprovalsClientSecret == "" && cfg.ApprovalsClientSecretFile == "") {
+		return fmt.Errorf("APPROVALS_ENABLED needs APPROVALS_TOKEN_URL, APPROVALS_CLIENT_ID and APPROVALS_CLIENT_SECRET(_FILE): the registry's credentials for the access request service")
+	}
+	if cfg.ApprovalsPollInterval < time.Second {
+		return fmt.Errorf("APPROVALS_POLL_INTERVAL must be at least 1s")
+	}
+	if cfg.ApprovalsCallbackURL != "" {
+		u, err := url.Parse(cfg.ApprovalsCallbackURL)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return fmt.Errorf("APPROVALS_CALLBACK_URL must be an https URL: the access request service only calls https")
+		}
+		if cfg.ApprovalsCallbackSecretFile == "" {
+			return fmt.Errorf("APPROVALS_CALLBACK_URL needs APPROVALS_CALLBACK_SECRET_FILE")
+		}
 	}
 	return nil
 }

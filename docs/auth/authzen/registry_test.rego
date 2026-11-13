@@ -28,7 +28,7 @@ test_admin_from_keycloak_group_path if {
 }
 
 test_writer if {
-	authzen.allow with input as req(user(["registry-writer"]), "apply", agent)
+	not authzen.allow with input as req(user(["registry-writer"]), "apply", agent) # needs approval (approvals.rego)
 	authzen.allow with input as req(user(["registry-writer"]), "deploy", agent)
 	authzen.allow with input as req(user(["registry-writer"]), "delete", secret)
 	not authzen.allow with input as req(user(["registry-writer"]), "admin", registry)
@@ -53,7 +53,8 @@ test_anonymous_is_denied if {
 }
 
 test_client_follows_its_roles if {
-	authzen.allow with input as req(client(["registry-writer"]), "apply", agent)
+	authzen.allow with input as req(client(["registry-writer"]), "deploy", agent)
+	not authzen.allow with input as req(client(["registry-writer"]), "apply", agent) # publishing needs approval
 	not authzen.allow with input as req(client([]), "read", agent)
 }
 

@@ -262,6 +262,11 @@ func NewHumaAPI(
 	// The web UI's sign-in settings. Served without authentication: the UI
 	// reads them before it has a token.
 	mux.Handle("GET /auth-config.json", authConfigHandler(cfg))
+	// Signed notices from the AuthZEN access request service; checked by
+	// HMAC in the handler, so no token is required.
+	if routeOpts != nil && routeOpts.ApprovalsCallback != nil {
+		mux.Handle("POST /approvals/callback", routeOpts.ApprovalsCallback)
+	}
 
 	// Serve UI from root path or handle 404 for non-API routes
 	if uiHandler != nil {

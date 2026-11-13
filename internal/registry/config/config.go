@@ -202,6 +202,28 @@ type Config struct {
 	// (for example OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318).
 	AuditOTLP bool `env:"AUDIT_OTLP" envDefault:"false"`
 
+	// Approvals (OpenID AuthZEN Access Request and Approval Profile)
+	//
+	// ApprovalsEnabled holds batch-apply writes that the PDP refuses but
+	// marks requestable, submits them to the PDP's access request service,
+	// and applies them once approved. Which changes need approval and who
+	// approves them is the PDP policy's decision. Needs AUTH_MODE=required.
+	ApprovalsEnabled bool `env:"APPROVALS_ENABLED" envDefault:"false"`
+	// The registry's own OAuth client, accepted by the access request
+	// service's caller_auth: it submits requests and reads their status.
+	ApprovalsTokenURL         string   `env:"APPROVALS_TOKEN_URL" envDefault:""`
+	ApprovalsClientID         string   `env:"APPROVALS_CLIENT_ID" envDefault:""`
+	ApprovalsClientSecret     string   `env:"APPROVALS_CLIENT_SECRET" envDefault:""`
+	ApprovalsClientSecretFile string   `env:"APPROVALS_CLIENT_SECRET_FILE" envDefault:""`
+	ApprovalsScopes           []string `env:"APPROVALS_SCOPES" envSeparator:"," envDefault:""`
+	// ApprovalsPollInterval is how often the leader checks held requests.
+	ApprovalsPollInterval time.Duration `env:"APPROVALS_POLL_INTERVAL" envDefault:"15s"`
+	// ApprovalsCallbackURL, when set, is the https URL of this registry's
+	// POST /approvals/callback, which the service calls when a request
+	// ends; ApprovalsCallbackSecretFile holds the shared HMAC secret.
+	ApprovalsCallbackURL        string `env:"APPROVALS_CALLBACK_URL" envDefault:""`
+	ApprovalsCallbackSecretFile string `env:"APPROVALS_CALLBACK_SECRET_FILE" envDefault:""`
+
 	// Authorization (OpenID AuthZEN 1.0 PDP)
 	//
 	// AuthzenURL is the PDP base URL; endpoints are discovered from

@@ -240,6 +240,15 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 	routeOpts := buildRouteOptions(options, stores, deploymentAdapters, perKindHooks)
 	routeOpts.AuditLister = auditWiring.lister
 	routeOpts.IsRegistryAdmin = authz.IsRegistryAdmin
+	approvalsSvc, approvalsCallback, err := buildApprovals(ctx, cfg, pool, authWiring.pdp, auditWiring.recorder)
+	if err != nil {
+		return fmt.Errorf("configure approvals: %w", err)
+	}
+	if approvalsSvc != nil {
+		routeOpts.Approvals = approvalsSvc
+		routeOpts.ApprovalsAPI = approvalsSvc
+		routeOpts.ApprovalsCallback = approvalsCallback
+	}
 
 	// Initialize HTTP server
 	baseServer, err := api.NewServer(cfg, metrics, versionInfo, options.UIHandler, authnProvider, routeOpts, options.OpenAPISchemaNamer)

@@ -28,6 +28,7 @@ export {
   createSkillV0,
   createPromptV0,
   deployServer,
+  PendingApprovalError,
 } from './ui-shims'
 export type {
   ServerResponse,

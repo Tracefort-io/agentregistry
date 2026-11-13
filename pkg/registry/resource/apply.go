@@ -70,6 +70,11 @@ type ApplyConfig struct {
 	// Audit records each document's outcome. Nil records nothing.
 	Audit audit.Recorder
 
+	// Approvals holds a write that authorization refused but that may be
+	// approved, and reports it as pending-approval. Nil leaves refusals as
+	// failures.
+	Approvals types.ApprovalStager
+
 	// Admission optionally owns the final apply write. Nil uses
 	// ProductionAdmission, which writes to the configured production Store.
 	Admission types.Admission
@@ -230,6 +235,9 @@ func applyOne(ctx context.Context, cfg ApplyConfig, obj v1alpha1.Object, namespa
 		Audit:             cfg.Audit,
 	}, dryRun)
 	if ae != nil {
+		if staged, ok := stageForApproval(ctx, cfg, res, ae, "apply", meta, obj, dryRun); ok {
+			return staged
+		}
 		return failResult(res, ae)
 	}
 
@@ -273,6 +281,9 @@ func deleteOne(ctx context.Context, cfg ApplyConfig, obj v1alpha1.Object, namesp
 		Audit:           cfg.Audit,
 	}, dryRun)
 	if ae != nil {
+		if staged, ok := stageForApproval(ctx, cfg, res, ae, "delete", meta, nil, dryRun); ok {
+			return staged
+		}
 		return failResult(res, ae)
 	}
 	res.Status = admitted.Status
@@ -375,4 +386,33 @@ func failResult(res arv0.ApplyResult, ae *applyError) arv0.ApplyResult {
 		res.Error = ae.Error()
 	}
 	return res
+}
+
+// stageForApproval hands a refused write to cfg.Approvals. ok reports that
+// the result is final: the change is pending approval, or staging it
+// failed. A dry run is never staged.
+func stageForApproval(ctx context.Context, cfg ApplyConfig, res arv0.ApplyResult, ae *applyError, verb string, meta v1alpha1.ObjectMeta, obj v1alpha1.Object, dryRun bool) (arv0.ApplyResult, bool) {
+	if cfg.Approvals == nil || dryRun || ae.Stage != stageAuth {
+		return res, false
+	}
+	if obj != nil {
+		// The pipeline has defaulted the tag on the object by now.
+		meta = *obj.GetMetadata()
+		res.Tag = meta.Tag
+	}
+	id, staged, err := cfg.Approvals.Stage(ctx, types.ApprovalStageInput{
+		Verb: verb, Kind: res.Kind, Namespace: meta.Namespace, Name: meta.Name, Tag: meta.Tag,
+		Object: obj, Denial: ae.Err,
+	})
+	if err != nil {
+		res.Status = arv0.ApplyStatusFailed
+		res.Error = "approval request: " + err.Error()
+		return res, true
+	}
+	if !staged {
+		return res, false
+	}
+	res.Status = arv0.ApplyStatusPendingApproval
+	res.ApprovalRequest = id
+	return res, true
 }

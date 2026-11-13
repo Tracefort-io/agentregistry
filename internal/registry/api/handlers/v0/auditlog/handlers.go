@@ -32,7 +32,7 @@ type EventsBody struct {
 
 type input struct {
 	Actor     string `query:"actor" doc:"Subject or username of the caller"`
-	Action    string `query:"action" enum:"apply,delete,read,list," doc:"Action taken"`
+	Action    string `query:"action" enum:"apply,delete,read,list,request-approval," doc:"Action taken"`
 	Outcome   string `query:"outcome" enum:"success,denied,failure," doc:"Outcome"`
 	Kind      string `query:"kind" doc:"Resource kind, for example Agent"`
 	Namespace string `query:"namespace"`

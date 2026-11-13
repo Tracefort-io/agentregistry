@@ -224,6 +224,13 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
+            {{- if and .Values.approvals.enabled .Values.approvals.clientSecretRef.name }}
+            - name: AGENT_REGISTRY_APPROVALS_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.approvals.clientSecretRef.name }}
+                  key: {{ .Values.approvals.clientSecretRef.key }}
+            {{- end }}
             {{- if .Values.extraEnvVars }}
             {{- tpl (toYaml .Values.extraEnvVars) . | nindent 12 }}
             {{- end }}
@@ -266,6 +273,11 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- end }}
           volumeMounts:
+            {{- if and .Values.approvals.enabled .Values.approvals.callback.url }}
+            - name: approvals-callback
+              mountPath: /var/run/agentregistry/approvals
+              readOnly: true
+            {{- end }}
             {{- if eq .Values.secretStore.type "OpenBao" }}
             {{- with .Values.secretStore.openbao }}
             {{- if eq .auth "approle" }}
@@ -292,6 +304,14 @@ spec:
             {{- end }}
             {{- end }}
       volumes:
+        {{- if and .Values.approvals.enabled .Values.approvals.callback.url }}
+        - name: approvals-callback
+          secret:
+            secretName: {{ .Values.approvals.callback.secretRef.name }}
+            items:
+              - key: {{ .Values.approvals.callback.secretRef.key }}
+                path: callback-secret
+        {{- end }}
         {{- if eq .Values.secretStore.type "OpenBao" }}
         {{- with .Values.secretStore.openbao }}
         {{- if eq .auth "approle" }}

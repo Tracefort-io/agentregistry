@@ -5,7 +5,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { deployServer as deployServerApi, type ServerResponse, type AgentResponse } from "@/lib/admin-api"
+import { deployServer as deployServerApi, PendingApprovalError, type ServerResponse, type AgentResponse } from "@/lib/admin-api"
+import { toast } from "sonner"
 import { Play, Plus, X, Loader2, CheckCircle } from "lucide-react"
 
 type DeployResourceType = "mcp" | "agent"
@@ -81,6 +82,12 @@ export function DeployDialog({ open, onOpenChange, resourceType, server, agent, 
         onDeploySuccess?.()
       }, 1500)
     } catch (err) {
+      if (err instanceof PendingApprovalError) {
+        toast.info(err.message)
+        onOpenChange(false)
+        resetState()
+        return
+      }
       setError(err instanceof Error ? err.message : `Failed to deploy ${resourceType === "mcp" ? "server" : "agent"}`)
     } finally {
       setDeploying(false)

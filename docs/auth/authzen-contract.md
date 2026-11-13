@@ -65,6 +65,10 @@ Built only from verified token claims.
 {"request_id": "<X-Request-ID>", "pep": "agentregistry"}
 ```
 
+An `apply` (and every check of a Deployment apply) also carries `document_sha256`, the SHA-256 of the submitted document's JSON. It's never sent for Secrets. A policy that binds it (`binding_context_members: ["document_sha256"]`) ties an approval to exactly the reviewed content.
+
+When the registry applies an approved change, the context also carries `"approval": {"id": "apr_…"}`. The PDP replaces it with its verification (`verified`, or `reason: approval_expired | out_of_scope | approval_unverifiable`) before the policy runs. See [approvals](../approvals.md).
+
 ## Deployments
 
 A Deployment is authorized as its own resource (`type: deployment`) for `read`, `list` and `delete`. On `apply`, the registry sends one batch with `deny_on_first_deny`:
@@ -121,6 +125,7 @@ The answer is advisory: every request is still authorized on its own, and a poli
 | No token, or an invalid token | `401` with `WWW-Authenticate: Bearer` |
 | PDP denies a `read` of one resource | `404` (existence is not disclosed) |
 | PDP denies anything else | `403` |
+| PDP denies an `apply` or `delete` as requestable (`context.access_request` with a `binding_token`) | In `/v0/apply`, with approvals enabled: held, per-document `status: pending-approval` and `approvalRequest`. Otherwise `403`. |
 | PDP unreachable, slow, or returns a malformed answer | `503` (still a denial) |
 
 Every denial error matches `errors.Is(err, auth.ErrForbidden)`; an unauthenticated one matches `auth.ErrUnauthenticated`.

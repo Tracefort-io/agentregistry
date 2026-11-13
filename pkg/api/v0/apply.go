@@ -10,8 +10,12 @@ type ApplyResult struct {
 	Name       string `json:"name"`
 	Tag        string `json:"tag,omitempty"`
 	// Status is one of: created, configured, unchanged, staged, deleted,
-	// dry-run, failed. Matches kubectl-style apply output.
+	// dry-run, failed, pending-approval. Matches kubectl-style apply output.
 	Status string `json:"status"`
+	// ApprovalRequest identifies the approval request created for a
+	// change that needs approval (Status=="pending-approval"). The
+	// registry applies the change once it is approved.
+	ApprovalRequest string `json:"approvalRequest,omitempty"`
 	// Generation is the server-managed generation after the apply.
 	// Populated for internal callers that need the reconciler-
 	// convergence marker; hidden from the wire because generation is
@@ -30,6 +34,9 @@ const (
 	ApplyStatusDeleted    = "deleted"
 	ApplyStatusDryRun     = "dry-run"
 	ApplyStatusFailed     = "failed"
+	// ApplyStatusPendingApproval: the change needs approval; it is held
+	// and applied once approved.
+	ApplyStatusPendingApproval = "pending-approval"
 )
 
 // ApplyResultsResponse is the response envelope body for POST/DELETE

@@ -133,6 +133,13 @@ export interface ApplyResult {
   name: string
   status: string
   error?: string
+  // approvalRequest names the approval request of a held change.
+  approvalRequest?: string
+}
+
+// pendingResults returns the documents held for approval.
+export function pendingResults(results: ApplyResult[] | undefined): ApplyResult[] {
+  return (results ?? []).filter((r) => r.status === "pending-approval")
 }
 
 // failedResults returns the documents /v0/apply could not apply or delete;

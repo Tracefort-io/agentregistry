@@ -16,6 +16,8 @@ The built-in mode authenticates JWTs from the configured issuers and asks an Aut
 | Deployment logs | `GET /v0/deployments/{name}/logs` | `read` on `deployment` `<ns>/<name>` | `404` |
 | Caller's permissions | `GET /v0/me` | `admin` on `registry`, and every kind's actions on `<ns>/*` | needs a token |
 | Audit log | `GET /v0/audit` | `admin` on `registry` | `403` |
+| Held changes | `GET /v0/approvals[/{id}]`, `POST /v0/approvals/{id}/cancel` | none: the requester's own, or all for `admin` on `registry` | `404` |
+| Review held changes | `GET /v0/approval-reviews[/{id}]`, `POST /v0/approval-reviews/{id}/decision` | The PDP's `ars_approver` rule, with the approver's own token | `403` |
 
 A PDP that cannot answer in time is a `503`, and counts as a denial. Internal reconciliation runs as a system session and does not ask the PDP.
 

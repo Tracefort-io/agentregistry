@@ -93,6 +93,36 @@ leaderElection:
   # -- How often replicas campaign and the leader renews.
   retryPeriod: 2s
 
+# @section Approvals
+
+# -- Approval workflows for publish and deploy (OpenID AuthZEN Access Request
+# and Approval Profile). A batch-apply change the PDP refuses but marks
+# requestable is held, submitted to the PDP's access request service, and
+# applied by the registry once approved. Which changes need approval and who
+# approves them is the PDP policy's decision. Needs auth.mode=required. See
+# docs/approvals.md.
+approvals:
+  enabled: false
+  # -- The registry's OAuth client (client credentials), accepted by the
+  # access request service's caller_auth.
+  tokenUrl: ""
+  clientId: ""
+  # -- Existing Secret holding the client secret.
+  clientSecretRef:
+    name: ""
+    key: client-secret
+  scopes: []
+  # -- How often held requests are checked.
+  pollInterval: 15s
+  # -- Optional: the https URL of this registry's POST /approvals/callback,
+  # which the service calls when a request ends, and an existing Secret with
+  # the shared HMAC secret (at least 32 bytes).
+  callback:
+    url: ""
+    secretRef:
+      name: ""
+      key: secret
+
 # @section Audit log
 
 # -- Audit log: every apply and delete, and every read the authorization

@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { createSkillV0, type SkillJson } from "@/lib/admin-api"
+import { createSkillV0, PendingApprovalError, type SkillJson } from "@/lib/admin-api"
+import { toast } from "sonner"
 import { isValidDNSSubdomain, DNS_SUBDOMAIN_HELP } from "@/lib/validators"
 
 interface AddSkillDialogProps {
@@ -72,6 +73,11 @@ export function AddSkillDialog({ open, onOpenChange, onSkillAdded }: AddSkillDia
       onSkillAdded()
       onOpenChange(false)
     } catch (err) {
+      if (err instanceof PendingApprovalError) {
+        toast.info(err.message)
+        onOpenChange(false)
+        return
+      }
       setError(err instanceof Error ? err.message : "Failed to add skill")
     } finally {
       setLoading(false)

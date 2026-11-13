@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { Plus, RefreshCw, Trash2 } from "lucide-react"
 import { applyBatch, client, deleteBatch } from "@/lib/admin-api"
 import { useCan } from "@/lib/permissions"
-import { AdminItem, ApplyResult, deleteDocument, failedResults, RESOURCE_KINDS, ResourceKind, ResourceKindName } from "@/lib/resource-kinds"
+import { AdminItem, ApplyResult, deleteDocument, failedResults, pendingResults, RESOURCE_KINDS, ResourceKind, ResourceKindName } from "@/lib/resource-kinds"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -108,7 +108,14 @@ export function ResourceAdmin({ kindName }: { kindName: ResourceKindName }) {
       setApplyErrors(failed)
       return
     }
-    toast.success(`Applied ${results.map((r) => `${r.kind ?? kind.kind} ${r.name}: ${r.status}`).join(", ")}`)
+    const pending = pendingResults(results)
+    if (pending.length > 0) {
+      toast.info(`${pending.map((r) => `${r.kind ?? kind.kind} ${r.name}`).join(", ")} needs approval. It will be applied once approved; follow it under Approvals.`)
+    }
+    const applied = results.filter((r) => r.status !== "pending-approval")
+    if (applied.length > 0) {
+      toast.success(`Applied ${applied.map((r) => `${r.kind ?? kind.kind} ${r.name}: ${r.status}`).join(", ")}`)
+    }
     setAdding(false)
     setYaml(kind.template)
     load()

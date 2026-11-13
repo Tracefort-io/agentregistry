@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { createPromptV0, type PromptJson } from "@/lib/admin-api"
+import { createPromptV0, PendingApprovalError, type PromptJson } from "@/lib/admin-api"
+import { toast } from "sonner"
 import { isValidDNSSubdomain, DNS_SUBDOMAIN_HELP } from "@/lib/validators"
 
 interface AddPromptDialogProps {
@@ -61,6 +62,11 @@ export function AddPromptDialog({ open, onOpenChange, onPromptAdded }: AddPrompt
       onPromptAdded()
       onOpenChange(false)
     } catch (err) {
+      if (err instanceof PendingApprovalError) {
+        toast.info(err.message)
+        onOpenChange(false)
+        return
+      }
       setError(err instanceof Error ? err.message : "Failed to add prompt")
     } finally {
       setLoading(false)

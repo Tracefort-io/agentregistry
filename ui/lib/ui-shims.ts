@@ -31,7 +31,6 @@ import type {
 } from "@/lib/api/types.gen"
 import {
   applyBatch as applyBatchRaw,
-  applyDeployment as applyDeploymentRaw,
   listAgents as listAgentsRaw,
   listMcpservers as listMcpserversRaw,
   listPrompts as listPromptsRaw,
@@ -258,10 +257,25 @@ async function applySingleDoc<T>(envelope: T & { kind?: string; metadata: { name
   const json = JSON.stringify(envelope)
   const body = new Blob([json], { type: "application/yaml" })
   const { data } = await applyBatchRaw({ throwOnError: true, body })
-  const result = data?.results?.[0]
+  const result = data?.results?.[0] as { status?: string; error?: string; approvalRequest?: string } | undefined
+  if (result?.status === "pending-approval") {
+    throw new PendingApprovalError(result.approvalRequest ?? "", `${envelope.kind ?? "resource"} ${envelope.metadata.name}`)
+  }
   if (!result || result.status === "failed") {
     const detail = result?.error ?? "no result returned"
     throw new Error(`apply ${envelope.kind ?? "resource"} ${envelope.metadata.name} failed: ${detail}`)
+  }
+}
+
+// PendingApprovalError reports a change that was not applied yet: the
+// registry holds it until an approver approves it, then applies it.
+export class PendingApprovalError extends Error {
+  constructor(
+    readonly requestId: string,
+    readonly what: string,
+  ) {
+    super(`${what} needs approval. It will be applied once approved; follow it under Approvals.`)
+    this.name = "PendingApprovalError"
   }
 }
 
@@ -349,19 +363,18 @@ export async function deployServer(opts: { throwOnError?: true; body: DeployServ
   // multiple deployments of different resource types can coexist in a
   // namespace. Keep this stable so the legacy UI can find/update it.
   const deploymentName = `${name}-${kind.toLowerCase()}`
-  const { data } = await applyDeploymentRaw({
-    throwOnError: true,
-    path: { name: deploymentName }, query: namespace !== "default" ? { namespace } : undefined,
-    body: {
-      apiVersion: "ar.dev/v1alpha1",
-      kind: "Deployment",
-      metadata: { namespace, name: deploymentName },
-      spec: {
-        targetRef: { kind, name, namespace, tag: opts.body.tag },
-        runtimeRef: { kind: "Runtime", name: opts.body.runtimeId, namespace },
-        env: opts.body.env,
-      },
+  // Through /v0/apply, like every other write, so a deploy that needs
+  // approval is held instead of refused.
+  const envelope: Deployment = {
+    apiVersion: "ar.dev/v1alpha1",
+    kind: "Deployment",
+    metadata: { namespace, name: deploymentName },
+    spec: {
+      targetRef: { kind, name, namespace, tag: opts.body.tag },
+      runtimeRef: { kind: "Runtime", name: opts.body.runtimeId, namespace },
+      env: opts.body.env,
     },
-  })
-  return { data: data as Deployment }
+  } as Deployment
+  await applySingleDoc(envelope)
+  return { data: envelope }
 }

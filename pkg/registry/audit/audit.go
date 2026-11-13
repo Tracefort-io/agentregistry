@@ -20,6 +20,9 @@ const (
 	ActionDelete = "delete"
 	ActionRead   = "read"
 	ActionList   = "list"
+	// ActionRequestApproval: a change that needs approval was submitted
+	// for it and held.
+	ActionRequestApproval = "request-approval"
 )
 
 // Outcomes recorded.

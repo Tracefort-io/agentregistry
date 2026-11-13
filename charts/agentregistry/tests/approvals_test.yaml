@@ -1,0 +1,69 @@
+suite: Approvals
+templates:
+  - configmap.yaml
+  - deployment.yaml
+  - postgresql-secret.yaml
+  - validate.yaml
+
+tests:
+  - it: is off by default
+    template: configmap.yaml
+    asserts:
+      - notExists:
+          path: data.AGENT_REGISTRY_APPROVALS_ENABLED
+
+  - it: renders the registry's client and takes its secret from a Secret
+    template: deployment.yaml
+    set:
+      auth: {mode: required, issuers: [{issuer: http://idp, audiences: [agentregistry]}], authzen: {url: http://pdp:8181}}
+      approvals: {enabled: true, tokenUrl: http://idp/token, clientId: agentregistry, clientSecretRef: {name: registry-approvals}}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AGENT_REGISTRY_APPROVALS_CLIENT_SECRET
+            valueFrom: {secretKeyRef: {name: registry-approvals, key: client-secret}}
+
+  - it: renders the settings into the ConfigMap
+    template: configmap.yaml
+    set:
+      auth: {mode: required, issuers: [{issuer: http://idp, audiences: [agentregistry]}], authzen: {url: http://pdp:8181}}
+      approvals:
+        enabled: true
+        tokenUrl: http://idp/token
+        clientId: agentregistry
+        clientSecretRef: {name: registry-approvals}
+        pollInterval: 5s
+        callback: {url: https://registry.example/approvals/callback, secretRef: {name: approvals-callback}}
+    asserts:
+      - equal: {path: data.AGENT_REGISTRY_APPROVALS_ENABLED, value: "true"}
+      - equal: {path: data.AGENT_REGISTRY_APPROVALS_TOKEN_URL, value: http://idp/token}
+      - equal: {path: data.AGENT_REGISTRY_APPROVALS_POLL_INTERVAL, value: 5s}
+      - equal: {path: data.AGENT_REGISTRY_APPROVALS_CALLBACK_URL, value: https://registry.example/approvals/callback}
+      - equal: {path: data.AGENT_REGISTRY_APPROVALS_CALLBACK_SECRET_FILE, value: /var/run/agentregistry/approvals/callback-secret}
+
+  - it: needs auth required
+    template: validate.yaml
+    set:
+      approvals: {enabled: true, tokenUrl: http://idp/token, clientId: x, clientSecretRef: {name: s}}
+    asserts:
+      - failedTemplate:
+          errorPattern: needs auth.mode=required
+
+  - it: needs the registry's client
+    template: validate.yaml
+    set:
+      auth: {mode: required, issuers: [{issuer: http://idp, audiences: [agentregistry]}], authzen: {url: http://pdp:8181}}
+      approvals: {enabled: true}
+    asserts:
+      - failedTemplate:
+          errorPattern: needs approvals.tokenUrl
+
+  - it: needs an https callback
+    template: validate.yaml
+    set:
+      auth: {mode: required, issuers: [{issuer: http://idp, audiences: [agentregistry]}], authzen: {url: http://pdp:8181}}
+      approvals: {enabled: true, tokenUrl: http://idp/token, clientId: x, clientSecretRef: {name: s}, callback: {url: http://registry/approvals/callback, secretRef: {name: c}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: must be https

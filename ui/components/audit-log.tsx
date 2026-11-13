@@ -102,6 +102,7 @@ export function AuditLog() {
             <option value="delete">delete</option>
             <option value="read">read</option>
             <option value="list">list</option>
+            <option value="request-approval">request-approval</option>
           </select>
           <select className={selectClass} aria-label="Outcome" {...field("outcome")}>
             <option value="">Any outcome</option>
@@ -144,7 +145,7 @@ export function AuditLog() {
                 >
                   <span className="w-44 shrink-0 tabular-nums text-muted-foreground">{formatTime(e.time)}</span>
                   <span className="w-36 shrink-0 truncate font-medium" title={e.actor.subject}>{actorLabel(e.actor)}</span>
-                  <Badge variant="secondary" className="w-14 justify-center">{e.action}</Badge>
+                  <Badge variant="secondary" className="min-w-14 justify-center">{e.action}</Badge>
                   <Badge variant="outline" className={`w-16 justify-center ${outcomeClass[e.outcome] ?? ""}`}>{e.outcome}</Badge>
                   <span className="shrink-0 text-muted-foreground">{e.resource.kind}</span>
                   <span className="min-w-0 flex-1 truncate">{resourceLabel(e.resource)}</span>

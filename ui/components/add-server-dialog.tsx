@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { createServerV0, type ServerJson } from "@/lib/admin-api"
+import { createServerV0, PendingApprovalError, type ServerJson } from "@/lib/admin-api"
 import { isValidDNSSubdomain } from "@/lib/validators"
 import { Loader2, AlertCircle, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -137,6 +137,11 @@ export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServer
       onServerAdded()
       resetForm()
     } catch (err) {
+      if (err instanceof PendingApprovalError) {
+        toast.info(err.message)
+        onOpenChange(false)
+        return
+      }
       // Show error toast
       toast.error(err instanceof Error ? err.message : "Failed to create server")
     } finally {

@@ -229,3 +229,45 @@ func TestValidate_OpenBao(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_Approvals(t *testing.T) {
+	on := func(mutate func(*Config)) *Config {
+		c := &Config{
+			AuthMode: AuthModeRequired, AuthzenURL: "https://pdp", AuthzenTimeout: time.Second, AuthzenListMax: 10,
+			AuthJWKSRefresh: time.Minute, ApprovalsEnabled: true,
+			ApprovalsTokenURL: "https://idp/token", ApprovalsClientID: "agentregistry", ApprovalsClientSecretFile: "/run/secret",
+			ApprovalsPollInterval: 15 * time.Second,
+		}
+		if mutate != nil {
+			mutate(c)
+		}
+		return c
+	}
+	tests := []struct {
+		name    string
+		cfg     *Config
+		wantErr bool
+	}{
+		{"off needs nothing", &Config{}, false},
+		{"complete", on(nil), false},
+		{"with a callback", on(func(c *Config) {
+			c.ApprovalsCallbackURL, c.ApprovalsCallbackSecretFile = "https://registry.example/approvals/callback", "/run/cb"
+		}), false},
+		{"needs auth required", on(func(c *Config) { c.AuthMode = AuthModeDisabled }), true},
+		{"needs credentials", on(func(c *Config) { c.ApprovalsClientID = "" }), true},
+		{"needs a secret", on(func(c *Config) { c.ApprovalsClientSecretFile = "" }), true},
+		{"poll too fast", on(func(c *Config) { c.ApprovalsPollInterval = 100 * time.Millisecond }), true},
+		{"callback over http", on(func(c *Config) {
+			c.ApprovalsCallbackURL, c.ApprovalsCallbackSecretFile = "http://registry/approvals/callback", "/run/cb"
+		}), true},
+		{"callback without a secret", on(func(c *Config) { c.ApprovalsCallbackURL = "https://registry/approvals/callback" }), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
