@@ -18,6 +18,9 @@ interface DeleteConfirmationDialogProps {
   description?: string
   itemName: string
   isDeleting?: boolean
+  // irreversible adds "This action cannot be undone."; false for removals
+  // that can be taken back, such as a file removed from an unpublished draft.
+  irreversible?: boolean
 }
 
 export function DeleteConfirmationDialog({
@@ -28,6 +31,7 @@ export function DeleteConfirmationDialog({
   description,
   itemName,
   isDeleting = false,
+  irreversible = true,
 }: DeleteConfirmationDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -41,8 +45,12 @@ export function DeleteConfirmationDialog({
           </div>
           <DialogDescription className="text-base">
             {description || `Are you sure you want to remove "${itemName}" from the registry?`}
-            <br />
-            <span className="text-destructive font-medium">This action cannot be undone.</span>
+            {irreversible && (
+              <>
+                <br />
+                <span className="text-destructive font-medium">This action cannot be undone.</span>
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center justify-end gap-2 mt-6">

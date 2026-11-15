@@ -7,6 +7,13 @@ import nextVitals from 'eslint-config-next/core-web-vitals'
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...storybook.configs['flat/recommended'],
+  {
+    rules: {
+      // Use the UI's dialogs (components/ui/dialog, DeleteConfirmationDialog)
+      // and toasts, not the browser's alert/confirm/prompt.
+      'no-alert': 'error',
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

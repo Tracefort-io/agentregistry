@@ -48,6 +48,8 @@ export default function DeployedPage() {
   const [error, setError] = useState<string | null>(null)
   const [removing, setRemoving] = useState(false)
   const [serverToRemove, setServerToRemove] = useState<FlatDeployment | null>(null)
+  // Why the last removal failed, shown in the still-open removal dialog.
+  const [removeError, setRemoveError] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
   const [filterRuntime, setFilterRuntime] = useState<string>("all")
   const [filterOrigin, setFilterOrigin] = useState<string>("all")
@@ -77,7 +79,13 @@ export default function DeployedPage() {
   }, [])
 
   const handleRemove = (deployment: FlatDeployment) => {
+    setRemoveError("")
     setServerToRemove(deployment)
+  }
+
+  const closeRemoveDialog = () => {
+    setServerToRemove(null)
+    setRemoveError("")
   }
 
   const confirmRemove = async () => {
@@ -85,6 +93,7 @@ export default function DeployedPage() {
 
     try {
       setRemoving(true)
+      setRemoveError("")
       // Namespace moved off the path onto a query param post-flatten;
       // omit when it's the implicit default.
       await deleteDeployment({
@@ -100,7 +109,7 @@ export default function DeployedPage() {
       setServerToRemove(null)
       fetchDeployments()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to remove deployment')
+      setRemoveError(err instanceof Error ? err.message : 'Failed to remove deployment')
     } finally {
       setRemoving(false)
     }
@@ -279,8 +288,8 @@ export default function DeployedPage() {
       </div>
 
       {/* Remove Confirmation Dialog */}
-      <Dialog open={!!serverToRemove} onOpenChange={(open) => !open && setServerToRemove(null)}>
-        <DialogContent onClose={() => setServerToRemove(null)}>
+      <Dialog open={!!serverToRemove} onOpenChange={(open) => !open && !removing && closeRemoveDialog()}>
+        <DialogContent onClose={() => !removing && closeRemoveDialog()}>
           <DialogHeader>
             <DialogTitle>Remove Deployment</DialogTitle>
             <DialogDescription>
@@ -289,8 +298,14 @@ export default function DeployedPage() {
               This will stop the server and remove it from your deployments. This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
+          {removeError && (
+            <p role="alert" className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>Could not remove the deployment: {removeError}</span>
+            </p>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setServerToRemove(null)} disabled={removing}>
+            <Button variant="outline" onClick={closeRemoveDialog} disabled={removing}>
               Cancel
             </Button>
             <Button variant="destructive" onClick={confirmRemove} disabled={removing}>
