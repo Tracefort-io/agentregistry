@@ -267,6 +267,11 @@ func NewHumaAPI(
 	if routeOpts != nil && routeOpts.ApprovalsCallback != nil {
 		mux.Handle("POST /approvals/callback", routeOpts.ApprovalsCallback)
 	}
+	// Webhook deliveries from the policy repository's git host; checked by
+	// signature in the handler, so no token is required.
+	if routeOpts != nil && routeOpts.PoliciesWebhook != nil {
+		mux.Handle("POST /policies/webhook", routeOpts.PoliciesWebhook)
+	}
 
 	// Serve UI from root path or handle 404 for non-API routes
 	if uiHandler != nil {

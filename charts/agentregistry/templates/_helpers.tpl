@@ -123,6 +123,22 @@ imagePullSecrets:
 {{/*
 Create the name of the service account to use.
 */}}
+{{/*
+authRequired is "true" when the server runs with authentication required:
+auth.mode=required, or AGENT_REGISTRY_AUTH_MODE=required set through
+extraEnvVars by a deployment that configures auth itself. The server checks
+its configuration again at startup.
+*/}}
+{{- define "agentregistry.authRequired" -}}
+{{- $required := eq .Values.auth.mode "required" }}
+{{- range .Values.extraEnvVars }}
+{{- if and (eq (toString .name) "AGENT_REGISTRY_AUTH_MODE") (eq (toString .value) "required") }}
+{{- $required = true }}
+{{- end }}
+{{- end }}
+{{- $required }}
+{{- end }}
+
 {{- define "agentregistry.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "agentregistry.fullname" .) .Values.serviceAccount.name }}
@@ -369,7 +385,7 @@ Called from templates/validate.yaml so it fires during helm template/install.
 {{- end }}
 {{- with .Values.approvals }}
 {{- if .enabled }}
-{{- if ne $.Values.auth.mode "required" }}
+{{- if ne (include "agentregistry.authRequired" $) "true" }}
 {{- $errors = append $errors "approvals.enabled needs auth.mode=required: approvals are decided by the AuthZEN PDP." }}
 {{- end }}
 {{- if or (not .tokenUrl) (not .clientId) (not .clientSecretRef.name) }}
@@ -380,6 +396,22 @@ Called from templates/validate.yaml so it fires during helm template/install.
 {{- end }}
 {{- if and .callback.url (not (hasPrefix "https://" .callback.url)) }}
 {{- $errors = append $errors "approvals.callback.url must be https: the access request service only calls https." }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- with .Values.policies }}
+{{- if .enabled }}
+{{- if ne (include "agentregistry.authRequired" $) "true" }}
+{{- $errors = append $errors "policies.enabled needs auth.mode=required: publishing is decided by the AuthZEN PDP and attributed to the caller." }}
+{{- end }}
+{{- if not (has .provider (list "github" "gitlab")) }}
+{{- $errors = append $errors (printf "policies.provider must be \"github\" or \"gitlab\" (got %q)." .provider) }}
+{{- end }}
+{{- if not (hasPrefix "https://" .repoUrl) }}
+{{- $errors = append $errors "policies.repoUrl must be the repository's https URL." }}
+{{- end }}
+{{- if or (not .credentialsSecret) (not .webhookSecretRef.name) }}
+{{- $errors = append $errors "policies.enabled needs policies.credentialsSecret and policies.webhookSecretRef.name." }}
 {{- end }}
 {{- end }}
 {{- end }}

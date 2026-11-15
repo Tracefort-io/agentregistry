@@ -1,0 +1,98 @@
+suite: Policies
+templates:
+  - configmap.yaml
+  - deployment.yaml
+  - postgresql-secret.yaml
+  - validate.yaml
+
+tests:
+  - it: is off by default
+    template: configmap.yaml
+    asserts:
+      - notExists:
+          path: data.AGENT_REGISTRY_POLICIES_ENABLED
+
+  - it: renders the settings into the ConfigMap
+    template: configmap.yaml
+    set:
+      auth: {mode: required, issuers: [{issuer: http://idp, audiences: [agentregistry]}], authzen: {url: http://pdp:8181}}
+      policies:
+        enabled: true
+        provider: gitlab
+        repoUrl: https://gitlab.acme.io/sec/policies.git
+        apiUrl: https://gitlab.acme.io/api/v4
+        credentialsSecret: platform/policies-git
+        webhookSecretRef: {name: policies-webhook}
+        opa: {url: http://opa:8181, tokenSecretRef: {name: opa-token}}
+    asserts:
+      - equal: {path: data.AGENT_REGISTRY_POLICIES_ENABLED, value: "true"}
+      - equal: {path: data.AGENT_REGISTRY_POLICIES_PROVIDER, value: gitlab}
+      - equal: {path: data.AGENT_REGISTRY_POLICIES_REPO_URL, value: https://gitlab.acme.io/sec/policies.git}
+      - equal: {path: data.AGENT_REGISTRY_POLICIES_BRANCH, value: main}
+      - equal: {path: data.AGENT_REGISTRY_POLICIES_API_URL, value: https://gitlab.acme.io/api/v4}
+      - equal: {path: data.AGENT_REGISTRY_POLICIES_CREDENTIALS_SECRET, value: platform/policies-git}
+      - equal: {path: data.AGENT_REGISTRY_POLICIES_WEBHOOK_SECRET_FILE, value: /var/run/agentregistry/policies/webhook-secret}
+      - equal: {path: data.AGENT_REGISTRY_POLICIES_COMMITTER_NAME, value: agentregistry}
+      - equal: {path: data.AGENT_REGISTRY_POLICIES_EVAL_TIMEOUT, value: 5s}
+      - equal: {path: data.AGENT_REGISTRY_POLICIES_OPA_URL, value: http://opa:8181}
+      - equal: {path: data.AGENT_REGISTRY_POLICIES_OPA_TOKEN_FILE, value: /var/run/agentregistry/policies-opa/token}
+
+  - it: mounts the webhook secret and the OPA token
+    template: deployment.yaml
+    set:
+      auth: {mode: required, issuers: [{issuer: http://idp, audiences: [agentregistry]}], authzen: {url: http://pdp:8181}}
+      policies:
+        enabled: true
+        provider: github
+        repoUrl: https://github.com/acme/policies
+        credentialsSecret: policies-git
+        webhookSecretRef: {name: policies-webhook}
+        opa: {url: http://opa:8181, tokenSecretRef: {name: opa-token}}
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: policies-webhook
+            secret: {secretName: policies-webhook, items: [{key: secret, path: webhook-secret}]}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: policies-opa
+            secret: {secretName: opa-token, items: [{key: token, path: token}]}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: policies-webhook, mountPath: /var/run/agentregistry/policies, readOnly: true}
+
+  - it: needs auth required
+    template: validate.yaml
+    set:
+      policies: {enabled: true, provider: github, repoUrl: https://github.com/acme/policies, credentialsSecret: s, webhookSecretRef: {name: w}}
+    asserts:
+      - failedTemplate:
+          errorPattern: needs auth.mode=required
+
+  - it: needs a known provider
+    template: validate.yaml
+    set:
+      auth: {mode: required, issuers: [{issuer: http://idp, audiences: [agentregistry]}], authzen: {url: http://pdp:8181}}
+      policies: {enabled: true, provider: bitbucket, repoUrl: https://bitbucket.org/acme/policies, credentialsSecret: s, webhookSecretRef: {name: w}}
+    asserts:
+      - failedTemplate:
+          errorPattern: policies.provider must be
+
+  - it: needs credentials and a webhook secret
+    template: validate.yaml
+    set:
+      auth: {mode: required, issuers: [{issuer: http://idp, audiences: [agentregistry]}], authzen: {url: http://pdp:8181}}
+      policies: {enabled: true, provider: github, repoUrl: https://github.com/acme/policies}
+    asserts:
+      - failedTemplate:
+          errorPattern: needs policies.credentialsSecret
+
+  - it: accepts auth required through extraEnvVars
+    template: validate.yaml
+    set:
+      extraEnvVars: [{name: AGENT_REGISTRY_AUTH_MODE, value: required}]
+      policies: {enabled: true, provider: github, repoUrl: https://github.com/acme/policies, credentialsSecret: s, webhookSecretRef: {name: w}}
+    asserts:
+      - notFailedTemplate: {}

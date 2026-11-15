@@ -25,11 +25,13 @@ describe("Navigation", () => {
     user = { profile: { sub: "carol-sub", preferred_username: "carol" } }
     render(<Navigation />)
     expect(screen.getAllByRole("link", { name: /Approvals/ })[0]).toHaveAttribute("href", "/approvals")
+    expect(screen.getAllByRole("link", { name: /Policies/ })[0]).toHaveAttribute("href", "/policies")
   })
 
   it("hides approvals without a signed-in user", () => {
     render(<Navigation />)
     expect(screen.queryByRole("link", { name: /Approvals/ })).toBeNull()
+    expect(screen.queryByRole("link", { name: /Policies/ })).toBeNull()
   })
 
   it("shows the audit log to registry admins", () => {

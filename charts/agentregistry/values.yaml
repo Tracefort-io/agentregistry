@@ -123,6 +123,46 @@ approvals:
       name: ""
       key: secret
 
+# @section Policies
+
+# -- Rego policies kept in a GitHub or GitLab repository: read live from the
+# branch OPAL tracks, edited in the UI, and published as pull (merge)
+# requests that an approver merges. Each merge is tagged <policy>/v<N>.
+# Needs auth.mode=required. See docs/policies.md.
+policies:
+  enabled: false
+  # -- "github" or "gitlab".
+  provider: ""
+  # -- The policy repository's https URL.
+  repoUrl: ""
+  # -- The branch OPAL tracks; pull requests target it.
+  branch: main
+  # -- Overrides the host's API URL derived from repoUrl (GitHub Enterprise,
+  # self-managed GitLab behind another host).
+  apiUrl: ""
+  # -- The registry Secret ("<name>" or "<namespace>/<name>", created with
+  # arctl or the API, not a Kubernetes Secret) holding the git host token
+  # under "password". It needs to push branches and tags and open pull requests.
+  credentialsSecret: ""
+  # -- Existing Kubernetes Secret with the webhook secret (at least 32 bytes)
+  # the git host signs deliveries to POST /policies/webhook with.
+  webhookSecretRef:
+    name: ""
+    key: secret
+  # -- Who commits the registry's pushes; the signed-in user is the author.
+  committer:
+    name: agentregistry
+    email: agentregistry@localhost
+  # -- Optional: the OPA whose loaded modules show which version is live
+  # (GET <url>/v1/policies), and an existing Secret with its bearer token.
+  opa:
+    url: ""
+    tokenSecretRef:
+      name: ""
+      key: token
+  # -- Time limit for one Evaluate or Test run in the editor.
+  evalTimeout: 5s
+
 # @section Audit log
 
 # -- Audit log: every apply and delete, and every read the authorization

@@ -224,6 +224,39 @@ type Config struct {
 	ApprovalsCallbackURL        string `env:"APPROVALS_CALLBACK_URL" envDefault:""`
 	ApprovalsCallbackSecretFile string `env:"APPROVALS_CALLBACK_SECRET_FILE" envDefault:""`
 
+	// Policies (Rego kept in a GitHub or GitLab repository)
+	//
+	// PoliciesEnabled serves /v0/policies: Rego policies and data read live
+	// from PoliciesBranch of PoliciesRepoURL, edited in the UI and published
+	// as pull (merge) requests. OPAL tracks the same branch and loads what
+	// is merged into OPA. Needs AUTH_MODE=required.
+	PoliciesEnabled bool `env:"POLICIES_ENABLED" envDefault:"false"`
+	// PoliciesProvider is "github" or "gitlab".
+	PoliciesProvider string `env:"POLICIES_PROVIDER" envDefault:""`
+	PoliciesRepoURL  string `env:"POLICIES_REPO_URL" envDefault:""`
+	PoliciesBranch   string `env:"POLICIES_BRANCH" envDefault:"main"`
+	// PoliciesAPIURL overrides the host's API URL derived from the
+	// repository URL (https://api.github.com, https://<host>/api/v3 or
+	// https://<host>/api/v4).
+	PoliciesAPIURL string `env:"POLICIES_API_URL" envDefault:""`
+	// PoliciesCredentialsSecret names the registry Secret ("<name>" in the
+	// default namespace, or "<namespace>/<name>") holding the token that
+	// pushes branches and tags and opens pull requests, under "password"
+	// (and optionally "username").
+	PoliciesCredentialsSecret string `env:"POLICIES_CREDENTIALS_SECRET" envDefault:""`
+	// PoliciesWebhookSecretFile holds the webhook secret the host signs
+	// deliveries to POST /policies/webhook with (at least 32 bytes).
+	PoliciesWebhookSecretFile string `env:"POLICIES_WEBHOOK_SECRET_FILE" envDefault:""`
+	// The committer of the commits the registry pushes; the caller is the author.
+	PoliciesCommitterName  string `env:"POLICIES_COMMITTER_NAME" envDefault:"agentregistry"`
+	PoliciesCommitterEmail string `env:"POLICIES_COMMITTER_EMAIL" envDefault:"agentregistry@localhost"`
+	// PoliciesOPAURL, when set, is the OPA whose loaded modules show which
+	// version of each policy is live (GET <url>/v1/policies).
+	PoliciesOPAURL       string `env:"POLICIES_OPA_URL" envDefault:""`
+	PoliciesOPATokenFile string `env:"POLICIES_OPA_TOKEN_FILE" envDefault:""`
+	// PoliciesEvalTimeout bounds one Evaluate or Test run in the editor.
+	PoliciesEvalTimeout time.Duration `env:"POLICIES_EVAL_TIMEOUT" envDefault:"5s"`
+
 	// Authorization (OpenID AuthZEN 1.0 PDP)
 	//
 	// AuthzenURL is the PDP base URL; endpoints are discovered from

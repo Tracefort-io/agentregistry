@@ -13,6 +13,8 @@
 #   registry-writer  read, list, apply, delete and deploy registry resources;
 #                    publishing and deploying need an approval (approvals.rego)
 #   registry-reader  read and list registry resources, except Secrets
+#   policy-author    read and publish Rego policies (resource type "policy");
+#                    publishing opens a pull request, which an approver merges
 # Anonymous callers are allowed nothing. Clients (client-credentials tokens)
 # get exactly what their roles allow.
 #
@@ -69,6 +71,16 @@ allow if {
 	registry_resource
 	input.resource.type != "secret"
 	input.action.name in reader_actions
+}
+
+# Rego policies in the policy repository (id: the policy's directory). The
+# Rego decides who may use the editor and open pull requests; who may merge
+# them is the git host's branch protection.
+allow if {
+	identified
+	"policy-author" in roles
+	input.resource.type == "policy"
+	input.action.name in {"read", "apply"}
 }
 
 # Resource Search (configure the PDP with search.resource: search_resource).

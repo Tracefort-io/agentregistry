@@ -26,59 +26,74 @@ Not built yet:
 - **Static approvers:** approvers are a static list in policy data.
 - **Notifications:** none, for example to Slack or Teams.
 
+### 2. Rego policies: not tested against a real git host, OPAL or a cluster
+
+Policy authoring and publishing ([docs/policies.md](docs/policies.md)) is tested with unit tests: git writes against a real git server (`git http-backend`), the GitHub and GitLab APIs against fakes, and Rego with the OPA library. Nothing has run against GitHub, GitLab, OPAL or OPA on k3s, through agentgateway, or in a browser. To try it:
+
+- **Repository:** a policy repository with branch protection, a token in a registry Secret, and a merge webhook to `/policies/webhook`.
+- **OPAL:** an OPAL server and client tracking the same branch, loading into the cluster's OPA.
+- **PDP policy:** the `policy-author` rule from [registry.rego](docs/auth/authzen/registry.rego) merged into the deployed policy.
+- **Gateway:** agentgateway must let `POST /v0/policies/...` through for policy authors, and pass `/policies/webhook` without a token.
+
+Not built yet:
+
+- **Regal:** the editor reports compile errors only, not Regal's lint.
+- **Root data:** a `data.json` at the repository root (loaded at `data`) belongs to no policy and can't be edited.
+- **Rendered diffs:** versions show old and new files side by side, not a line diff.
+
 ## Bugs
 
-### 2. A startup failure can hang without logging its error, and SIGTERM may not stop the process
+### 3. A startup failure can hang without logging its error, and SIGTERM may not stop the process
 
 When `registry.App` returns an error, or shuts down after SIGTERM, closing the database pool can wait forever for connections that background goroutines still hold: controllers, LISTEN subscriptions, loops on `context.Background()`. The error is never logged, and the pod stalls until its probe kills it.
 
 It was seen twice: when a schema-name clash crashed route registration, and when a local registry ignored SIGTERM. A fix needs an app-scoped context, canceled before the pool closes, and the error logged before shutdown.
 
-### 3. Tags aren't validated on apply
+### 4. Tags aren't validated on apply
 
 `metadata.tag: Bad Tag!` is accepted on `POST /v0/apply`, although the tag rule (`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`) forbids it. Names are validated; tags aren't.
 
 ## Gaps
 
-### 4. Writes refused at the gateway aren't in the registry's audit log
+### 5. Writes refused at the gateway aren't in the registry's audit log
 
 agentgateway refuses some writes (for example, a reader's apply) before they reach the registry, so the registry can't record them. Only the gateway's logs have them.
 
-### 5. Leader election
+### 6. Leader election
 
 - **Lease expiry untested live:** a crashed Kubernetes Lease holder, where standbys wait out the 15s lease, wasn't tested on a cluster. Force-deleting a pod still sends SIGTERM, so the Lease was released, not expired.
 - **No guard against mixed mechanisms:** replicas on `postgres` and `kubernetes` don't see each other, and changing the mechanism on a running system relies on stopping the old pods first.
 - **No leader metric:** there's no `agentregistry_leader` metric yet; only logs show who leads.
 
-### 6. Secrets
+### 7. Secrets
 
 - **Database store:** it still encrypts with one static AES key, with no rotation. OpenBao option B, a Transit envelope with re-wrapping, isn't built.
 - **OpenBao setup by hand:** for the OpenBao store, the setup (KV mount, policy, Kubernetes role) is done by hand from [docs/secrets-openbao.md](docs/secrets-openbao.md).
 
-### 7. HTTP hardening
+### 8. HTTP hardening
 
 The web UI's Content-Security-Policy allows `'unsafe-inline'` scripts, because Next.js inlines its bootstrap code. Nonces or hashes would remove that.
 
-### 8. Identity
+### 9. Identity
 
 Only Keycloak has been tested; Entra ID hasn't. [test/authe2e](test/authe2e/README.md) shows how to run the per-role test with Entra tokens.
 
 ## Code health
 
-### 9. Lint and type errors in older code
+### 10. Lint and type errors in older code
 
 - **Integration-tagged tests:** `golangci-lint` with `--build-tags=integration` reports findings in older tests (`sort` imports, loops that could range over int, testify assertions), for example `store_tagging_test.go`, `store_test.go`, `adapter_resolver_test.go` and `predicate_integration_test.go`.
 - **UI type check:** `npx tsc --noEmit` fails in `ui/components/__tests__/server-card.test.tsx` (`repository` isn't on `McpServerSource`).
 - **UI lint:** ESLint warns about a missing `fetchData` dependency in `ui/app/page.tsx`.
 
-### 10. Tooling
+### 11. Tooling
 
 - **Go version:** with Go 1.27 installed, the pinned golangci-lint can't read the standard library. Run `GOTOOLCHAIN=go1.26.9 make lint`.
 - **Network-dependent test:** `TestValidateNPM_RealPackages` calls the real npm registry and fails when DNS or the network is unavailable.
 
 ## Roadmap
 
-### 11. Features not started
+### 12. Features not started
 
 - **Runtimes:** AgentCore and Virtual.
 - **Gateway binding:** publish a deployed agent or MCP server through agentgateway.

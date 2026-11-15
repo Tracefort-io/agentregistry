@@ -226,6 +226,16 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 | podSecurityContext.enabled | bool | `true` | Enable pod-level security context |
 | podSecurityContext.fsGroup | int | `1001` | Group ID for the pod filesystem |
 | podSecurityContext.fsGroupChangePolicy | string | `"Always"` | Policy for changing fsGroup ownership |
+| policies | object | `{"apiUrl":"","branch":"main","committer":{"email":"agentregistry@localhost","name":"agentregistry"},"credentialsSecret":"","enabled":false,"evalTimeout":"5s","opa":{"tokenSecretRef":{"key":"token","name":""},"url":""},"provider":"","repoUrl":"","webhookSecretRef":{"key":"secret","name":""}}` | Rego policies kept in a GitHub or GitLab repository: read live from the branch OPAL tracks, edited in the UI, and published as pull (merge) requests that an approver merges. Each merge is tagged <policy>/v<N>. Needs auth.mode=required. See docs/policies.md. |
+| policies.apiUrl | string | `""` | Overrides the host's API URL derived from repoUrl (GitHub Enterprise, self-managed GitLab behind another host). |
+| policies.branch | string | `"main"` | The branch OPAL tracks; pull requests target it. |
+| policies.committer | object | `{"email":"agentregistry@localhost","name":"agentregistry"}` | Who commits the registry's pushes; the signed-in user is the author. |
+| policies.credentialsSecret | string | `""` | The registry Secret ("<name>" or "<namespace>/<name>", created with arctl or the API, not a Kubernetes Secret) holding the git host token under "password". It needs to push branches and tags and open pull requests. |
+| policies.evalTimeout | string | `"5s"` | Time limit for one Evaluate or Test run in the editor. |
+| policies.opa | object | `{"tokenSecretRef":{"key":"token","name":""},"url":""}` | Optional: the OPA whose loaded modules show which version is live (GET <url>/v1/policies), and an existing Secret with its bearer token. |
+| policies.provider | string | `""` | "github" or "gitlab". |
+| policies.repoUrl | string | `""` | The policy repository's https URL. |
+| policies.webhookSecretRef | object | `{"key":"secret","name":""}` | Existing Kubernetes Secret with the webhook secret (at least 32 bytes) the git host signs deliveries to POST /policies/webhook with. |
 | priorityClassName | string | `""` | Priority class name for the Agent Registry pods |
 | rbac.enabled | bool | `true` | Enable RBAC resource creation |
 | rbac.watchedNamespaces | list | `[]` | Namespaces Agent Registry is permitted to manage resources in. Empty list grants cluster-wide access via ClusterRole (default). Set to one or more namespaces to create a Role in each and restrict access accordingly. Note: read access to the cluster scoped APIs is always granted via ClusterRole regardless of this setting. |

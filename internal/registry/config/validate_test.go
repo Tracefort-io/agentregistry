@@ -271,3 +271,45 @@ func TestValidate_Approvals(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_Policies(t *testing.T) {
+	on := func(mutate func(*Config)) *Config {
+		c := &Config{
+			AuthMode: AuthModeRequired, AuthzenURL: "https://pdp", AuthzenTimeout: time.Second, AuthzenListMax: 10,
+			AuthJWKSRefresh: time.Minute, PoliciesEnabled: true,
+			PoliciesProvider: "github", PoliciesRepoURL: "https://github.com/acme/policies", PoliciesBranch: "main",
+			PoliciesCredentialsSecret: "policies-git", PoliciesWebhookSecretFile: "/run/webhook", PoliciesEvalTimeout: 5 * time.Second,
+		}
+		if mutate != nil {
+			mutate(c)
+		}
+		return c
+	}
+	tests := []struct {
+		name    string
+		cfg     *Config
+		wantErr bool
+	}{
+		{"off needs nothing", &Config{}, false},
+		{"complete", on(nil), false},
+		{"gitlab with api and opa", on(func(c *Config) {
+			c.PoliciesProvider, c.PoliciesAPIURL, c.PoliciesOPAURL = "gitlab", "https://gitlab.acme.io/api/v4", "http://opa:8181"
+		}), false},
+		{"needs auth required", on(func(c *Config) { c.AuthMode = AuthModeDisabled }), true},
+		{"unknown provider", on(func(c *Config) { c.PoliciesProvider = "bitbucket" }), true},
+		{"repo over http", on(func(c *Config) { c.PoliciesRepoURL = "http://github.com/acme/policies" }), true},
+		{"empty branch", on(func(c *Config) { c.PoliciesBranch = "" }), true},
+		{"needs credentials", on(func(c *Config) { c.PoliciesCredentialsSecret = "" }), true},
+		{"needs a webhook secret", on(func(c *Config) { c.PoliciesWebhookSecretFile = "" }), true},
+		{"bad opa url", on(func(c *Config) { c.PoliciesOPAURL = "opa:8181" }), true},
+		{"eval timeout too long", on(func(c *Config) { c.PoliciesEvalTimeout = 2 * time.Minute }), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

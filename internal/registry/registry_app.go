@@ -249,6 +249,14 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 		routeOpts.ApprovalsAPI = approvalsSvc
 		routeOpts.ApprovalsCallback = approvalsCallback
 	}
+	policiesSvc, policiesWebhook, err := buildPolicies(cfg, gitCredentials, &authz, auditWiring.recorder)
+	if err != nil {
+		return fmt.Errorf("configure policies: %w", err)
+	}
+	if policiesSvc != nil {
+		routeOpts.PoliciesAPI = policiesSvc
+		routeOpts.PoliciesWebhook = policiesWebhook
+	}
 
 	// Initialize HTTP server
 	baseServer, err := api.NewServer(cfg, metrics, versionInfo, options.UIHandler, authnProvider, routeOpts, options.OpenAPISchemaNamer)

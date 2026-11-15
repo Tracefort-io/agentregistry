@@ -103,6 +103,8 @@ export function AuditLog() {
             <option value="read">read</option>
             <option value="list">list</option>
             <option value="request-approval">request-approval</option>
+            <option value="publish-policy">publish-policy</option>
+            <option value="tag-policy">tag-policy</option>
           </select>
           <select className={selectClass} aria-label="Outcome" {...field("outcome")}>
             <option value="">Any outcome</option>

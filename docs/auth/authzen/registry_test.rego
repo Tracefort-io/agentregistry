@@ -42,6 +42,22 @@ test_reader if {
 	not authzen.allow with input as req(user(["registry-reader"]), "read", secret)
 }
 
+policy := {"type": "policy", "id": "authzen", "properties": {"name": "authzen"}}
+
+test_policy_author if {
+	authzen.allow with input as req(user(["policy-author"]), "read", policy)
+	authzen.allow with input as req(user(["policy-author"]), "apply", policy)
+	not authzen.allow with input as req(user(["policy-author"]), "delete", policy)
+	not authzen.allow with input as req(user(["policy-author"]), "read", agent)
+}
+
+test_policies_need_the_author_role if {
+	authzen.allow with input as req(user(["registry-admin"]), "apply", policy)
+	not authzen.allow with input as req(user(["registry-writer"]), "read", policy)
+	not authzen.allow with input as req(user(["registry-writer"]), "apply", policy)
+	not authzen.allow with input as req(user(["registry-reader"]), "read", policy)
+}
+
 test_no_role_is_denied if {
 	not authzen.allow with input as req(user([]), "read", agent)
 }

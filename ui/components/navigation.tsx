@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
 import { useState, useSyncExternalStore } from "react"
-import { ClipboardCheck, Cpu, KeyRound, LogOut, Menu, Moon, Puzzle, Rocket, ScrollText, Server, Sun, UserRound } from "lucide-react"
+import { ClipboardCheck, Cpu, FileCode2, KeyRound, LogOut, Menu, Moon, Puzzle, Rocket, ScrollText, Server, Sun, UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { CATALOG_SECTIONS, useCatalogNav } from "@/lib/catalog-nav"
@@ -20,9 +20,10 @@ const PLATFORM_LINKS = [
 ]
 
 // Shown to signed-in users: everyone follows their own held changes, and
-// approvers review others'.
+// approvers review others'. Policies lists only those the user may read.
 const SIGNED_IN_LINKS = [
   { href: "/approvals", label: "Approvals", icon: <ClipboardCheck className="h-3.5 w-3.5" /> },
+  { href: "/policies", label: "Policies", icon: <FileCode2 className="h-3.5 w-3.5" /> },
 ]
 
 // Shown to registry admins only; the registry refuses everyone else anyway.

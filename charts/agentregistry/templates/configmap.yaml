@@ -36,6 +36,28 @@ data:
   {{- end }}
   {{- end }}
   {{- end }}
+  {{- with .Values.policies }}
+  {{- if .enabled }}
+  AGENT_REGISTRY_POLICIES_ENABLED: "true"
+  AGENT_REGISTRY_POLICIES_PROVIDER: {{ .provider | quote }}
+  AGENT_REGISTRY_POLICIES_REPO_URL: {{ .repoUrl | quote }}
+  AGENT_REGISTRY_POLICIES_BRANCH: {{ .branch | quote }}
+  {{- with .apiUrl }}
+  AGENT_REGISTRY_POLICIES_API_URL: {{ . | quote }}
+  {{- end }}
+  AGENT_REGISTRY_POLICIES_CREDENTIALS_SECRET: {{ .credentialsSecret | quote }}
+  AGENT_REGISTRY_POLICIES_WEBHOOK_SECRET_FILE: /var/run/agentregistry/policies/webhook-secret
+  AGENT_REGISTRY_POLICIES_COMMITTER_NAME: {{ .committer.name | quote }}
+  AGENT_REGISTRY_POLICIES_COMMITTER_EMAIL: {{ .committer.email | quote }}
+  AGENT_REGISTRY_POLICIES_EVAL_TIMEOUT: {{ .evalTimeout | quote }}
+  {{- with .opa.url }}
+  AGENT_REGISTRY_POLICIES_OPA_URL: {{ . | quote }}
+  {{- end }}
+  {{- if and .opa.url .opa.tokenSecretRef.name }}
+  AGENT_REGISTRY_POLICIES_OPA_TOKEN_FILE: /var/run/agentregistry/policies-opa/token
+  {{- end }}
+  {{- end }}
+  {{- end }}
   {{- with .Values.audit }}
   AGENT_REGISTRY_AUDIT_ENABLED: {{ .enabled | quote }}
   AGENT_REGISTRY_AUDIT_RETENTION: {{ .retention | quote }}

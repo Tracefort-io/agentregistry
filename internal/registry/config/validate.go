@@ -35,6 +35,9 @@ func Validate(cfg *Config) error {
 	if err := validateApprovals(cfg); err != nil {
 		return err
 	}
+	if err := validatePolicies(cfg); err != nil {
+		return err
+	}
 	return validateAuth(cfg)
 }
 
@@ -206,6 +209,41 @@ func validateOpenBao(cfg *Config) error {
 		}
 	default:
 		return fmt.Errorf("OPENBAO_AUTH must be kubernetes, approle or token, got %q", cfg.OpenBaoAuth)
+	}
+	return nil
+}
+
+// validatePolicies checks the policies settings when they are on.
+func validatePolicies(cfg *Config) error {
+	if !cfg.PoliciesEnabled {
+		return nil
+	}
+	if cfg.AuthMode != AuthModeRequired {
+		return fmt.Errorf("POLICIES_ENABLED needs AUTH_MODE=required: publishing is decided by the AuthZEN PDP and attributed to the caller")
+	}
+	if cfg.PoliciesProvider != "github" && cfg.PoliciesProvider != "gitlab" {
+		return fmt.Errorf("POLICIES_PROVIDER must be github or gitlab, got %q", cfg.PoliciesProvider)
+	}
+	if u, err := url.Parse(cfg.PoliciesRepoURL); err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("POLICIES_REPO_URL must be the repository's https URL")
+	}
+	if cfg.PoliciesBranch == "" {
+		return fmt.Errorf("POLICIES_BRANCH must not be empty")
+	}
+	if cfg.PoliciesAPIURL != "" && !isHTTPURL(cfg.PoliciesAPIURL) {
+		return fmt.Errorf("POLICIES_API_URL must be an http(s) URL")
+	}
+	if cfg.PoliciesCredentialsSecret == "" {
+		return fmt.Errorf("POLICIES_ENABLED needs POLICIES_CREDENTIALS_SECRET: the Secret holding the git host token")
+	}
+	if cfg.PoliciesWebhookSecretFile == "" {
+		return fmt.Errorf("POLICIES_ENABLED needs POLICIES_WEBHOOK_SECRET_FILE: merged changes are tagged from the host's webhook")
+	}
+	if cfg.PoliciesOPAURL != "" && !isHTTPURL(cfg.PoliciesOPAURL) {
+		return fmt.Errorf("POLICIES_OPA_URL must be an http(s) URL")
+	}
+	if cfg.PoliciesEvalTimeout <= 0 || cfg.PoliciesEvalTimeout > time.Minute {
+		return fmt.Errorf("POLICIES_EVAL_TIMEOUT must be between 0 and 1m")
 	}
 	return nil
 }

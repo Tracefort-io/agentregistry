@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 
+	v0policies "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/policies"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/config"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/telemetry"
 	arv0 "github.com/agentregistry-dev/agentregistry/pkg/api/v0"
@@ -311,9 +312,10 @@ func TestNewHumaAPIRegistersEveryOptionalRoute(t *testing.T) {
 	require.NotPanics(t, func() {
 		_, err = NewHumaAPI(&config.Config{}, mux, metrics, &arv0.VersionBody{}, nil, nil,
 			&RouteOptions{
-				Stores:          Stores{v1alpha1.KindPlugin: &v1alpha1store.Store{}},
+				Stores:          everyKind(),
 				AuditLister:     emptyAuditLister{},
 				IsRegistryAdmin: func(context.Context) bool { return true },
+				PoliciesAPI:     stubPolicies{},
 			},
 			nil,
 		)
@@ -325,4 +327,24 @@ func TestNewHumaAPIRegistersEveryOptionalRoute(t *testing.T) {
 		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 		require.Equal(t, http.StatusOK, recorder.Code, path+": "+recorder.Body.String())
 	}
+	// The policies routes are registered; without a session they answer 401, not 404.
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v0/policies", nil))
+	require.Equal(t, http.StatusUnauthorized, recorder.Code, recorder.Body.String())
+}
+
+// stubPolicies registers the policies routes; the test never calls it.
+type stubPolicies struct{ v0policies.Service }
+
+// everyKind has a store for every built-in kind, so their schemas (such as
+// v1alpha1.Status) are registered as on a real server.
+func everyKind() Stores {
+	stores := Stores{}
+	for _, kind := range []string{
+		v1alpha1.KindAgent, v1alpha1.KindMCPServer, v1alpha1.KindSkill, v1alpha1.KindPlugin, v1alpha1.KindPrompt,
+		v1alpha1.KindDeployment, v1alpha1.KindRuntime, v1alpha1.KindModel, v1alpha1.KindSecret,
+	} {
+		stores[kind] = &v1alpha1store.Store{}
+	}
+	return stores
 }

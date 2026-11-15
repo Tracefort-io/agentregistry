@@ -278,6 +278,16 @@ spec:
               mountPath: /var/run/agentregistry/approvals
               readOnly: true
             {{- end }}
+            {{- if .Values.policies.enabled }}
+            - name: policies-webhook
+              mountPath: /var/run/agentregistry/policies
+              readOnly: true
+            {{- if and .Values.policies.opa.url .Values.policies.opa.tokenSecretRef.name }}
+            - name: policies-opa
+              mountPath: /var/run/agentregistry/policies-opa
+              readOnly: true
+            {{- end }}
+            {{- end }}
             {{- if eq .Values.secretStore.type "OpenBao" }}
             {{- with .Values.secretStore.openbao }}
             {{- if eq .auth "approle" }}
@@ -311,6 +321,22 @@ spec:
             items:
               - key: {{ .Values.approvals.callback.secretRef.key }}
                 path: callback-secret
+        {{- end }}
+        {{- if .Values.policies.enabled }}
+        - name: policies-webhook
+          secret:
+            secretName: {{ .Values.policies.webhookSecretRef.name }}
+            items:
+              - key: {{ .Values.policies.webhookSecretRef.key }}
+                path: webhook-secret
+        {{- if and .Values.policies.opa.url .Values.policies.opa.tokenSecretRef.name }}
+        - name: policies-opa
+          secret:
+            secretName: {{ .Values.policies.opa.tokenSecretRef.name }}
+            items:
+              - key: {{ .Values.policies.opa.tokenSecretRef.key }}
+                path: token
+        {{- end }}
         {{- end }}
         {{- if eq .Values.secretStore.type "OpenBao" }}
         {{- with .Values.secretStore.openbao }}

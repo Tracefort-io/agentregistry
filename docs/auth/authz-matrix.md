@@ -18,6 +18,11 @@ The built-in mode authenticates JWTs from the configured issuers and asks an Aut
 | Audit log | `GET /v0/audit` | `admin` on `registry` | `403` |
 | Held changes | `GET /v0/approvals[/{id}]`, `POST /v0/approvals/{id}/cancel` | none: the requester's own, or all for `admin` on `registry` | `404` |
 | Review held changes | `GET /v0/approval-reviews[/{id}]`, `POST /v0/approval-reviews/{id}/decision` | The PDP's `ars_approver` rule, with the approver's own token | `403` |
+| List policies | `GET /v0/policies` | `read` on `policy` `<name>`, per policy | rows not readable are left out |
+| Read a policy | `GET /v0/policies/{name}`, `.../versions`, `.../diff`, `.../pending`, `.../status` | `read` on `policy` `<name>` | `403` |
+| Policy editor tools | `POST /v0/policies/{name}/format`, `/check`, `/evaluate`, `/test` | `read` on `policy` `<name>` | `403` |
+| Publish a policy | `POST /v0/policies/{name}/publish` | `apply` on `policy` `<name>`; merging is the git host's branch protection | `403` |
+| Policy merge webhook | `POST /policies/webhook` | none: the git host's signature (`X-Hub-Signature-256`, `X-Gitlab-Token`) | `401` |
 
 A PDP that cannot answer in time is a `503`, and counts as a denial. Internal reconciliation runs as a system session and does not ask the PDP.
 

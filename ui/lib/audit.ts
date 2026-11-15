@@ -6,7 +6,7 @@ export interface AuditEvent {
   time: string
   requestId?: string
   actor: { subject?: string; issuer?: string; username?: string; client?: boolean; via?: string[] }
-  action: "apply" | "delete" | "read" | "list" | "request-approval"
+  action: "apply" | "delete" | "read" | "list" | "request-approval" | "publish-policy" | "tag-policy"
   resource: { kind: string; namespace?: string; name?: string; tag?: string }
   outcome: "success" | "denied" | "failure"
   detail?: string

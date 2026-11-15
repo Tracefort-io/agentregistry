@@ -19,6 +19,7 @@ import (
 	v0health "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/health"
 	v0me "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/me"
 	v0ping "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/ping"
+	v0policies "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/policies"
 	v0version "github.com/agentregistry-dev/agentregistry/internal/registry/api/handlers/v0/version"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/config"
 	internaldb "github.com/agentregistry-dev/agentregistry/internal/registry/database"
@@ -119,6 +120,14 @@ type RouteOptions struct {
 	// notices at POST /approvals/callback. It authenticates them by HMAC,
 	// not by a token. Nil leaves the route out.
 	ApprovalsCallback http.Handler
+
+	// PoliciesAPI serves /v0/policies: Rego policies kept in a git
+	// repository. Nil leaves policies off.
+	PoliciesAPI v0policies.Service
+	// PoliciesWebhook receives the git host's webhook deliveries at
+	// POST /policies/webhook. It authenticates them by signature, not by a
+	// token. Nil leaves the route out.
+	PoliciesWebhook http.Handler
 }
 
 // Approvals holds writes that need approval. Bind hands it the production
@@ -181,6 +190,9 @@ func RegisterRoutes(
 	)
 	if opts.ApprovalsAPI != nil {
 		v0approvals.Register(api, pathPrefix, v0approvals.Config{Service: opts.ApprovalsAPI, IsAdmin: opts.IsRegistryAdmin})
+	}
+	if opts.PoliciesAPI != nil {
+		v0policies.Register(api, pathPrefix, v0policies.Config{Service: opts.PoliciesAPI})
 	}
 
 	if opts.ExtraRoutes != nil {

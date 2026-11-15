@@ -58,6 +58,7 @@ Built only from verified token claims.
 - `tag` is present for tagged kinds when the operation names a tag.
 - For `list`, `id` is `<namespace>/*`, or `*` across all namespaces.
 - The admin check uses `{"type": "registry", "id": "agentregistry"}`.
+- Rego policies in the policy repository use `{"type": "policy", "id": "<policy>", "properties": {"name": "<policy>"}}`, with `read` (view, and the editor's tools) and `apply` (publish a pull request). See [policies](../policies.md).
 
 ## Context
 

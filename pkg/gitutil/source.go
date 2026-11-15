@@ -136,22 +136,8 @@ func fetchTree(ctx context.Context, dir, cloneURL, sha string, auth *url.Userinf
 	if err != nil {
 		return nil, err
 	}
-	remote := git.NewRemote(repo.Storer, &config.RemoteConfig{Name: git.DefaultRemoteName, URLs: []string{cloneURL}})
-	opts := &git.FetchOptions{
-		RefSpecs: []config.RefSpec{config.RefSpec(sha + ":refs/heads/fetched")},
-		Depth:    1,
-		Tags:     git.NoTags,
-		Auth:     basicAuth(auth),
-	}
-	err = remote.FetchContext(ctx, opts)
-	if errors.Is(err, git.ErrExactSHA1NotSupported) {
-		// Servers without allow-reachable-sha1-in-want only serve advertised refs, so fetch their history.
-		opts.RefSpecs = []config.RefSpec{"+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"}
-		opts.Depth = 0
-		err = remote.FetchContext(ctx, opts)
-	}
-	if err != nil {
-		return nil, redact(fmt.Errorf("fetch %s from %s: %w", sha, cloneURL, err), auth)
+	if err := fetchCommits(ctx, repo, cloneURL, auth, sha); err != nil {
+		return nil, err
 	}
 	commit, err := repo.CommitObject(plumbing.NewHash(sha))
 	if err != nil {
