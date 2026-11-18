@@ -74,11 +74,20 @@ tests:
           path: rules
           content:
             apiGroups:
-              - kagent.dev
+              - api.kagent.dev
             resources:
               - agents
+            verbs:
+              - get
+              - list
+              - watch
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - api.kagent.dev
+            resources:
               - remotemcpservers
-              - mcpservers
             verbs:
               - get
               - list
@@ -156,11 +165,20 @@ tests:
           path: rules
           content:
             apiGroups:
-              - kagent.dev
+              - api.kagent.dev
             resources:
               - agents
+            verbs:
+              - get
+              - list
+              - watch
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - api.kagent.dev
+            resources:
               - remotemcpservers
-              - mcpservers
             verbs:
               - get
               - list

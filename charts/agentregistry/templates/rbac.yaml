@@ -21,11 +21,17 @@ rules:
       - watch
   {{- if not .Values.rbac.watchedNamespaces }}
   - apiGroups:
-      - kagent.dev
+      - api.kagent.dev
     resources:
       - agents
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - api.kagent.dev
+    resources:
       - remotemcpservers
-      - mcpservers
     verbs:
       - get
       - list
@@ -102,11 +108,17 @@ metadata:
   {{- end }}
 rules:
   - apiGroups:
-      - kagent.dev
+      - api.kagent.dev
     resources:
       - agents
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - api.kagent.dev
+    resources:
       - remotemcpservers
-      - mcpservers
     verbs:
       - get
       - list

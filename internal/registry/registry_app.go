@@ -126,13 +126,7 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 		}
 	}
 	secretResolver := secret.NewService(secretStore)
-	kagentOptions := []kagent.Option{
-		kagent.WithDeploymentFinder(kagent.NewStoreDeploymentFinder(stores[v1alpha1.KindDeployment])),
-	}
-	if secretStore != nil {
-		kagentOptions = append(kagentOptions, kagent.WithSecretResolver(secretResolver))
-	}
-	defaultKagentAdapter := kagent.New(kagentOptions...)
+	defaultKagentAdapter := kagent.New()
 	if _, ok := deploymentAdapters[kagent.RuntimeType]; !ok {
 		deploymentAdapters[kagent.RuntimeType] = defaultKagentAdapter
 	}

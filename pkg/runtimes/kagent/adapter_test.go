@@ -2,49 +2,47 @@ package kagent
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
-	"github.com/agentregistry-dev/agentregistry/pkg/secret"
 	"github.com/agentregistry-dev/agentregistry/pkg/types"
 )
 
-type fakeSecretResolver struct {
-	ref   v1alpha1.SecretRef
-	value secret.SensitiveValue
+func newFakeDynamic(objects ...runtime.Object) *dynamicfake.FakeDynamicClient {
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
+		runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{
+			agentsResource:           "AgentList",
+			remoteMCPServersResource: "RemoteMCPServerList",
+		},
+		objects...,
+	)
 }
 
-func (r *fakeSecretResolver) Resolve(
-	_ context.Context,
-	ref v1alpha1.SecretRef,
-) (secret.SensitiveValue, error) {
-	r.ref = ref
-	return r.value, nil
+func testAdapter(dyn *dynamicfake.FakeDynamicClient) *adapter {
+	client := newDynamicClient(dyn)
+	return newAdapter(func() (kagentClient, error) { return client, nil })
 }
 
-func (*fakeSecretResolver) ResolveAll(
-	context.Context,
-	v1alpha1.SecretRef,
-) (map[string]secret.SensitiveValue, error) {
-	return nil, nil
+func kagentObject(kind, namespace, name string) *unstructured.Unstructured {
+	obj := &unstructured.Unstructured{Object: map[string]any{"spec": map[string]any{}}}
+	obj.SetAPIVersion(kagentGroup + "/" + kagentVersion)
+	obj.SetKind(kind)
+	obj.SetNamespace(namespace)
+	obj.SetName(name)
+	return obj
 }
 
-func testAdapter(client *fakeClient, options ...Option) types.DeploymentAdapter {
-	return newAdapter(func(runtimeConfig) (kagentClient, error) {
-		return client, nil
-	}, options...)
-}
-
-func withRuntimeConfig(input types.ApplyInput) types.ApplyInput {
-	input.Runtime.Spec.Config = map[string]any{
-		"kagentUrl": "http://kagent:8083",
-		"namespace": "kagent",
-	}
-	return input
+func runtimeWithConfig(config map[string]any) *v1alpha1.Runtime {
+	return &v1alpha1.Runtime{Spec: v1alpha1.RuntimeSpec{Type: RuntimeType, Config: config}}
 }
 
 func mcpApplyInput() types.ApplyInput {
@@ -58,20 +56,34 @@ func mcpApplyInput() types.ApplyInput {
 		Target: &v1alpha1.MCPServer{
 			Metadata: v1alpha1.ObjectMeta{Name: "gh-mcp", Namespace: "default"},
 			Spec: v1alpha1.MCPServerSpec{
+				Description: "GitHub tools",
 				Remote: &v1alpha1.MCPRemote{
 					Type: "streamable-http",
 					URL:  "https://mcp.example.com/mcp",
 				},
 			},
 		},
-		Runtime: &v1alpha1.Runtime{Spec: v1alpha1.RuntimeSpec{Type: RuntimeType}},
+		Runtime: runtimeWithConfig(map[string]any{"namespace": "kagent"}),
 	}
 }
 
-func findCondition(
-	conditions []v1alpha1.Condition,
-	conditionType string,
-) *v1alpha1.Condition {
+func agentApplyInput() types.ApplyInput {
+	return types.ApplyInput{
+		Deployment: &types.DeploymentRecord{Deployment: &v1alpha1.Deployment{
+			Metadata: v1alpha1.ObjectMeta{Name: "agent-deploy", Namespace: "default"},
+			Spec: v1alpha1.DeploymentSpec{
+				TargetRef: v1alpha1.ResourceRef{Kind: v1alpha1.KindAgent, Name: "my-agent"},
+			},
+		}},
+		Target: &v1alpha1.Agent{
+			Metadata: v1alpha1.ObjectMeta{Name: "my-agent", Namespace: "default"},
+			Spec:     v1alpha1.AgentSpec{Source: &v1alpha1.AgentSource{Image: "example/agent:1.0.0"}},
+		},
+		Runtime: runtimeWithConfig(nil),
+	}
+}
+
+func findCondition(conditions []v1alpha1.Condition, conditionType string) *v1alpha1.Condition {
 	for i := range conditions {
 		if conditions[i].Type == conditionType {
 			return &conditions[i]
@@ -80,426 +92,178 @@ func findCondition(
 	return nil
 }
 
-func TestApplyAgentUsesEstablishedRuntimeMetadata(t *testing.T) {
-	client := newFakeClient()
-	input := withRuntimeConfig(byoApplyInput())
-
-	result, err := testAdapter(client).Apply(context.Background(), input)
+func getRemoteMCPServer(t *testing.T, dyn *dynamicfake.FakeDynamicClient, namespace, name string) *unstructured.Unstructured {
+	t.Helper()
+	obj, err := dyn.Resource(remoteMCPServersResource).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
 	require.NoError(t, err)
-	require.Contains(t, client.agents, "kagent/my-agent")
-	assert.Equal(t, "my-agent", result.InternalMeta.RuntimeID)
+	return obj
+}
+
+func TestApplyMCPServerCreatesRemoteMCPServer(t *testing.T) {
+	dyn := newFakeDynamic()
+	input := mcpApplyInput()
+
+	result, err := testAdapter(dyn).Apply(context.Background(), input)
+	require.NoError(t, err)
+
+	name := DeploymentWorkloadName(input.Deployment)
+	server := getRemoteMCPServer(t, dyn, "kagent", name)
+	url, _, _ := unstructured.NestedString(server.Object, "spec", "url")
+	assert.Equal(t, "https://mcp.example.com/mcp", url)
+	assert.Equal(t, managedByValue, server.GetLabels()[managedByLabel])
+
+	assert.Equal(t, name, result.InternalMeta.RuntimeID)
 	assert.Equal(t, "kagent", result.InternalMeta.RuntimeNamespace)
-	assert.Equal(t, "my-agent", result.Runtime.ID)
+	assert.Equal(t, "https://mcp.example.com/mcp", result.Runtime.Endpoint)
 	assert.Equal(t, v1alpha1.ConditionTrue, findCondition(result.Conditions, "Ready").Status)
-}
-
-func TestApplyAndDiscoverUseSameRemoteIDForNormalizedAgentName(t *testing.T) {
-	client := newFakeClient()
-	adapter := testAdapter(client)
-	input := withRuntimeConfig(byoApplyInput())
-
-	result, err := adapter.Apply(context.Background(), input)
-	require.NoError(t, err)
-	discovered, err := adapter.(types.DeploymentDiscoverySource).Discover(
-		context.Background(),
-		types.DiscoverInput{Runtime: input.Runtime},
-	)
-	require.NoError(t, err)
-	require.Len(t, discovered, 1)
-	assert.Equal(t, "my-agent", result.InternalMeta.RuntimeID)
-	assert.Equal(t, "my-agent", discovered[0].InternalMeta.RuntimeID)
-}
-
-func TestDesiredFingerprintWaitsForAutomaticMCPDeploymentEndpoint(t *testing.T) {
-	input := withRuntimeConfig(byoApplyInput())
-	input.Deployment.Spec.RuntimeRef = v1alpha1.ResourceRef{
-		Kind: v1alpha1.KindRuntime,
-		Name: "kagent-prod",
-	}
-	input.Runtime.Metadata = v1alpha1.ObjectMeta{Name: "kagent-prod", Namespace: "default"}
-	input.Target.(*v1alpha1.Agent).TypeMeta = v1alpha1.TypeMeta{
-		APIVersion: v1alpha1.GroupVersion,
-		Kind:       v1alpha1.KindAgent,
-	}
-	input.Target.(*v1alpha1.Agent).Spec.MCPServers = []v1alpha1.ResourceRef{{Name: "tools"}}
-	input.Getter = func(context.Context, v1alpha1.ResourceRef) (v1alpha1.Object, error) {
-		return &v1alpha1.MCPServer{
-			TypeMeta: v1alpha1.TypeMeta{
-				APIVersion: v1alpha1.GroupVersion,
-				Kind:       v1alpha1.KindMCPServer,
-			},
-			Metadata: v1alpha1.ObjectMeta{Name: "tools", Namespace: "default"},
-			Spec:     v1alpha1.MCPServerSpec{Source: &v1alpha1.MCPServerSource{}},
-		}, nil
-	}
-	mcpDeployment := &v1alpha1.Deployment{
-		Metadata: v1alpha1.ObjectMeta{Name: "tools-prod", Namespace: "default"},
-	}
-	finder := DeploymentFinderFunc(func(
-		context.Context,
-		v1alpha1.ResourceRef,
-		v1alpha1.ResourceRef,
-	) (*v1alpha1.Deployment, bool, error) {
-		return mcpDeployment, true, nil
-	})
-
-	fingerprinter := New(WithDeploymentFinder(finder)).(types.DeploymentDesiredFingerprinter)
-	_, err := fingerprinter.DesiredFingerprint(context.Background(), input)
-	require.ErrorIs(t, err, ErrDependencyNotReady)
-	result, err := New(WithDeploymentFinder(finder)).Apply(context.Background(), input)
-	require.ErrorIs(t, err, ErrDependencyNotReady)
-	require.Nil(t, result)
-	mcpDeployment.Status.Conditions = []v1alpha1.Condition{{
-		Type:    mcpServerURLCondition,
-		Status:  v1alpha1.ConditionTrue,
-		Message: "http://tools.kagent.svc.cluster.local:3000/mcp",
-	}}
-	fingerprint, err := fingerprinter.DesiredFingerprint(context.Background(), input)
-	require.NoError(t, err)
-	assert.NotEmpty(t, fingerprint)
-}
-
-func TestApplyMCPServerUsesEstablishedRuntimeMetadata(t *testing.T) {
-	client := newFakeClient()
-	input := withRuntimeConfig(mcpApplyInput())
-	input.Deployment.InternalMeta = types.DeploymentInternalMeta{RuntimeID: "gh-mcp", RuntimeNamespace: "kagent"}
-
-	result, err := testAdapter(client).Apply(context.Background(), input)
-	require.NoError(t, err)
-	require.Contains(t, client.toolServers, "kagent/gh-mcp")
-	assert.Equal(t, "gh-mcp", result.InternalMeta.RuntimeID)
-	assert.Equal(t, "kagent", result.InternalMeta.RuntimeNamespace)
-	assert.Equal(t, "gh-mcp", result.Runtime.ID)
 	endpoint := findCondition(result.Conditions, mcpServerURLCondition)
 	require.NotNil(t, endpoint)
 	assert.Equal(t, v1alpha1.ConditionTrue, endpoint.Status)
 	assert.Equal(t, "https://mcp.example.com/mcp", endpoint.Message)
 }
 
-func TestApplyUsesRuntimeLabelsForPodBackedResources(t *testing.T) {
-	const labelKey = "example.com/managed"
-
-	withLabels := func(input types.ApplyInput) types.ApplyInput {
-		input = withRuntimeConfig(input)
-		input.Runtime.Spec.Config["deployment"] = map[string]any{
-			"labels": map[string]any{labelKey: "true"},
-		}
-		return input
-	}
-
-	t.Run("agent", func(t *testing.T) {
-		client := newFakeClient()
-
-		_, err := testAdapter(client).Apply(context.Background(), withLabels(byoApplyInput()))
-		require.NoError(t, err)
-		agent := client.agents["kagent/my-agent"]
-		assert.Equal(t, "true", agent.Labels[labelKey])
-		assert.Equal(t, "true", agent.Spec.BYO.Deployment.Labels[labelKey])
-	})
-
-	t.Run("source-backed MCP server", func(t *testing.T) {
-		client := newFakeClient()
-		input := mcpApplyInput()
-		input.Deployment.Spec.TargetRef.Name = "source-tools"
-		input.Target = &v1alpha1.MCPServer{
-			Metadata: v1alpha1.ObjectMeta{Name: "source-tools", Namespace: "default"},
-			Spec: v1alpha1.MCPServerSpec{
-				Source: &v1alpha1.MCPServerSource{Package: &v1alpha1.MCPPackage{
-					Origin: v1alpha1.MCPPackageOrigin{
-						Type:       v1alpha1.MCPPackageOriginTypeNPM,
-						Identifier: "@acme/source-tools",
-						NPM:        &v1alpha1.MCPPackageOriginNPM{Version: "1.2.3"},
-					},
-					Transport: v1alpha1.MCPTransport{Type: "stdio"},
-				}},
-			},
-		}
-
-		_, err := testAdapter(client).Apply(context.Background(), withLabels(input))
-		require.NoError(t, err)
-		server := client.toolServers["kagent/"+DeploymentWorkloadName(input.Deployment)].MCP
-		assert.Equal(t, "true", server.Labels[labelKey])
-		assert.Equal(t, "true", server.Spec.Deployment.Labels[labelKey])
-	})
-
-	t.Run("remote MCP server", func(t *testing.T) {
-		client := newFakeClient()
-
-		_, err := testAdapter(client).Apply(context.Background(), withLabels(mcpApplyInput()))
-		require.NoError(t, err)
-		server := client.toolServers["kagent/"+DeploymentWorkloadName(mcpApplyInput().Deployment)].Remote
-		assert.NotContains(t, server.Labels, labelKey)
-	})
-}
-
-func TestApplyForwardsServiceAccountName(t *testing.T) {
-	withServiceAccount := func(input types.ApplyInput) types.ApplyInput {
-		input = withRuntimeConfig(input)
-		input.Deployment.Spec.RuntimeConfig = map[string]any{"serviceAccountName": "shared-sa"}
-		return input
-	}
-
-	t.Run("agent", func(t *testing.T) {
-		client := newFakeClient()
-
-		_, err := testAdapter(client).Apply(context.Background(), withServiceAccount(byoApplyInput()))
-		require.NoError(t, err)
-		assert.Equal(t, "shared-sa", client.agents["kagent/my-agent"].Spec.BYO.Deployment.ServiceAccountName)
-	})
-
-	t.Run("source-backed MCP server", func(t *testing.T) {
-		client := newFakeClient()
-		input := mcpApplyInput()
-		input.Target = &v1alpha1.MCPServer{
-			Metadata: v1alpha1.ObjectMeta{Name: "source-tools", Namespace: "default"},
-			Spec: v1alpha1.MCPServerSpec{
-				Source: &v1alpha1.MCPServerSource{Package: &v1alpha1.MCPPackage{
-					Origin: v1alpha1.MCPPackageOrigin{
-						Type:       v1alpha1.MCPPackageOriginTypeNPM,
-						Identifier: "@acme/source-tools",
-						NPM:        &v1alpha1.MCPPackageOriginNPM{Version: "1.2.3"},
-					},
-					Transport: v1alpha1.MCPTransport{Type: "stdio"},
-				}},
-			},
-		}
-
-		_, err := testAdapter(client).Apply(context.Background(), withServiceAccount(input))
-		require.NoError(t, err)
-		server := client.toolServers["kagent/"+DeploymentWorkloadName(input.Deployment)].MCP
-		assert.Equal(t, "shared-sa", server.Spec.Deployment.ServiceAccountName)
-	})
-}
-
-func TestApplyUnsupportedHarnessReturnsFailedStatus(t *testing.T) {
-	input := withRuntimeConfig(byoApplyInput())
-	input.Deployment.Spec.Harness = &v1alpha1.DeploymentHarness{Type: "claude-code"}
-
-	result, err := testAdapter(newFakeClient()).Apply(context.Background(), input)
+func TestApplyMCPServerUpdatesExisting(t *testing.T) {
+	dyn := newFakeDynamic()
+	a := testAdapter(dyn)
+	input := mcpApplyInput()
+	_, err := a.Apply(context.Background(), input)
 	require.NoError(t, err)
-	ready := findCondition(result.Conditions, "Ready")
-	require.NotNil(t, ready)
-	assert.Equal(t, "Failed", ready.Reason)
-	assert.Nil(t, findCondition(result.Conditions, "Degraded"))
-}
 
-func TestApplyInvalidRuntimeConfigReturnsFailedStatus(t *testing.T) {
-	input := byoApplyInput()
-	input.Runtime.Spec.Config = map[string]any{"namespace": "kagent"}
-
-	result, err := testAdapter(newFakeClient()).Apply(context.Background(), input)
+	input.Target.(*v1alpha1.MCPServer).Spec.Remote.URL = "https://mcp.example.com/v2/mcp"
+	input.Runtime = runtimeWithConfig(map[string]any{
+		"namespace":  "kagent",
+		"deployment": map[string]any{"labels": map[string]any{"team": "platform"}},
+	})
+	_, err = a.Apply(context.Background(), input)
 	require.NoError(t, err)
-	ready := findCondition(result.Conditions, "Ready")
-	require.NotNil(t, ready)
-	assert.Equal(t, "Failed", ready.Reason)
-	assert.Nil(t, findCondition(result.Conditions, "Degraded"))
+
+	server := getRemoteMCPServer(t, dyn, "kagent", DeploymentWorkloadName(input.Deployment))
+	url, _, _ := unstructured.NestedString(server.Object, "spec", "url")
+	assert.Equal(t, "https://mcp.example.com/v2/mcp", url)
+	assert.Equal(t, "platform", server.GetLabels()["team"])
 }
 
-func TestApplyPropagatesKagentError(t *testing.T) {
-	client := newFakeClient()
-	client.errs["ensureAgent:kagent/my-agent"] = assert.AnError
-
-	_, err := testAdapter(client).Apply(context.Background(), withRuntimeConfig(byoApplyInput()))
-	assert.ErrorIs(t, err, assert.AnError)
-}
-
-func removeInput(metadata map[string]string) types.RemoveInput {
-	deployment := &types.DeploymentRecord{Deployment: &v1alpha1.Deployment{
-		Metadata: v1alpha1.ObjectMeta{Name: "my-deploy"},
-		Spec: v1alpha1.DeploymentSpec{
-			TargetRef: v1alpha1.ResourceRef{Kind: v1alpha1.KindAgent, Name: "My Agent"},
+func TestApplyRejections(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      func() types.ApplyInput
+		wantReason string
+	}{
+		{
+			name:       "agent",
+			input:      agentApplyInput,
+			wantReason: "UnsupportedTarget",
 		},
-	}}
-	if metadata != nil {
-		deployment.InternalMeta.RuntimeID = metadata["remoteId"]
-		deployment.InternalMeta.RuntimeNamespace = metadata["namespace"]
-	}
-	return types.RemoveInput{
-		Deployment: deployment,
-		Runtime: &v1alpha1.Runtime{Spec: v1alpha1.RuntimeSpec{
-			Type: RuntimeType,
-			Config: map[string]any{
-				"kagentUrl": "http://kagent:8083",
-				"namespace": "kagent",
+		{
+			name: "package-based MCP server",
+			input: func() types.ApplyInput {
+				in := mcpApplyInput()
+				in.Target.(*v1alpha1.MCPServer).Spec.Remote = nil
+				return in
 			},
-		}},
+			wantReason: "UnsupportedTarget",
+		},
+		{
+			name: "deployment runtimeConfig",
+			input: func() types.ApplyInput {
+				in := mcpApplyInput()
+				in.Deployment.Spec.RuntimeConfig = map[string]any{"secretRefs": []any{"x"}}
+				return in
+			},
+			wantReason: "InvalidDeployConfig",
+		},
+		{
+			name: "runtime auth",
+			input: func() types.ApplyInput {
+				in := mcpApplyInput()
+				in.Runtime = runtimeWithConfig(map[string]any{"auth": map[string]any{}})
+				return in
+			},
+			wantReason: "InvalidRuntimeConfig",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dyn := newFakeDynamic()
+			result, err := testAdapter(dyn).Apply(context.Background(), tt.input())
+			require.NoError(t, err)
+			ready := findCondition(result.Conditions, "Ready")
+			require.NotNil(t, ready)
+			assert.Equal(t, v1alpha1.ConditionFalse, ready.Status)
+			assert.Equal(t, "Failed", ready.Reason)
+			assert.Empty(t, dyn.Actions(), "a rejected apply must not touch the cluster")
+		})
 	}
 }
 
-func TestRemoveUsesRecordedIdentity(t *testing.T) {
-	client := newFakeClient()
-	result, err := testAdapter(client).Remove(context.Background(), removeInput(map[string]string{
-		"remoteId":  "existing-agent",
-		"namespace": "team-a",
-	}))
+func TestRemoveMCPServerDeletesRemoteMCPServer(t *testing.T) {
+	dyn := newFakeDynamic()
+	a := testAdapter(dyn)
+	input := mcpApplyInput()
+	_, err := a.Apply(context.Background(), input)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"Agent:team-a/existing-agent"}, client.deleted)
+
+	removeInput := types.RemoveInput{Deployment: input.Deployment, Runtime: input.Runtime}
+	result, err := a.Remove(context.Background(), removeInput)
+	require.NoError(t, err)
 	assert.Equal(t, "Removed", findCondition(result.Conditions, "Ready").Reason)
-}
+	assert.Equal(t, v1alpha1.ConditionFalse, findCondition(result.Conditions, mcpServerURLCondition).Status)
 
-func TestRemoveDerivesIdentityWhenDeploymentWasNotMaterialized(t *testing.T) {
-	client := newFakeClient()
-	_, err := testAdapter(client).Remove(context.Background(), removeInput(nil))
-	require.NoError(t, err)
-	assert.Equal(t, []string{"Agent:kagent/my-deploy-b1e349716edf"}, client.deleted)
-}
-
-func TestRemoveTreatsMissingRuntimeResourceAsSuccess(t *testing.T) {
-	client := newFakeClient()
-	client.errs["deleteAgent:kagent/my-deploy-b1e349716edf"] = errNotFound
-	_, err := testAdapter(client).Remove(context.Background(), removeInput(nil))
-	assert.NoError(t, err)
-}
-
-func TestRemoveMCPServerClearsEndpoint(t *testing.T) {
-	client := newFakeClient()
-	input := removeInput(map[string]string{"remoteId": "tools", "namespace": "kagent"})
-	input.Deployment.Spec.TargetRef.Kind = v1alpha1.KindMCPServer
-
-	result, err := testAdapter(client).Remove(context.Background(), input)
-	require.NoError(t, err)
-	condition := findCondition(result.Conditions, mcpServerURLCondition)
-	require.NotNil(t, condition)
-	assert.Equal(t, v1alpha1.ConditionFalse, condition.Status)
-	assert.Equal(t, "Removed", condition.Reason)
-	assert.Equal(t, "Kagent MCP server removed", condition.Message)
-}
-
-func TestToolServerEndpointUsesDeclaredPath(t *testing.T) {
-	server := &toolServerSpec{MCP: &mcpServerPayload{}}
-	server.MCP.Name = "tools"
-	server.MCP.Namespace = "kagent"
-	server.MCP.Spec.Deployment.Port = 8080
-	server.MCP.Spec.HTTPTransport = &httpTransportPayload{TargetPath: "/upstream-mcp"}
-
-	assert.Equal(
-		t,
-		"http://tools.kagent.svc.cluster.local:8080/upstream-mcp",
-		toolServerEndpoint(server),
-	)
-}
-
-func TestLogsReturnsPersistedFailure(t *testing.T) {
-	adapter := testAdapter(newFakeClient())
-	_, err := adapter.Logs(context.Background(), types.LogsInput{})
+	_, err = dyn.Resource(remoteMCPServersResource).Namespace("kagent").
+		Get(context.Background(), DeploymentWorkloadName(input.Deployment), metav1.GetOptions{})
 	require.Error(t, err)
 
-	deployment := &types.DeploymentRecord{Deployment: &v1alpha1.Deployment{}}
-	lines, err := adapter.Logs(context.Background(), types.LogsInput{Deployment: deployment})
+	// Removing again tolerates the missing resource.
+	_, err = a.Remove(context.Background(), removeInput)
 	require.NoError(t, err)
-	_, open := <-lines
-	assert.False(t, open)
-
-	deployment.Status.SetCondition(v1alpha1.Condition{
-		Type: "Ready", Status: v1alpha1.ConditionFalse, Reason: "Failed", Message: "boom",
-	})
-	lines, err = adapter.Logs(context.Background(), types.LogsInput{Deployment: deployment})
-	require.NoError(t, err)
-	line, open := <-lines
-	require.True(t, open)
-	assert.Equal(t, "boom", line.Line)
-	_, open = <-lines
-	assert.False(t, open)
 }
 
-func TestSecretResolverBuildsRuntimeTokenSource(t *testing.T) {
-	resolver := &fakeSecretResolver{value: secret.NewSensitiveValue([]byte("secret-token"))}
-	a := New(WithSecretResolver(resolver)).(*adapter)
-	runtime := &v1alpha1.Runtime{
-		Metadata: v1alpha1.ObjectMeta{Name: "runtime-one", Namespace: "team-a"},
-	}
-	tokenSource, err := a.tokenSourceFor(context.Background(), runtime, authConfig{
-		SecretRef: &v1alpha1.SecretRef{Name: "kagent-credentials", Key: "token"},
+func TestRemoveAgentDoesNotTouchCluster(t *testing.T) {
+	dyn := newFakeDynamic()
+	input := agentApplyInput()
+	result, err := testAdapter(dyn).Remove(context.Background(), types.RemoveInput{
+		Deployment: input.Deployment,
+		Runtime:    input.Runtime,
 	})
 	require.NoError(t, err)
-	token, err := tokenSource.Token(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, "secret-token", token)
-	assert.Equal(t, v1alpha1.SecretRef{
-		Namespace: "team-a",
-		Name:      "kagent-credentials",
-		Key:       "token",
-	}, resolver.ref)
+	assert.Equal(t, "Removed", findCondition(result.Conditions, "Ready").Reason)
+	assert.Empty(t, dyn.Actions())
 }
 
-func TestTokenSourceFactoryReceivesRuntime(t *testing.T) {
-	var received *v1alpha1.Runtime
-	a := New(WithTokenSourceFactory(func(
-		_ context.Context,
-		runtime *v1alpha1.Runtime,
-	) (TokenSource, error) {
-		received = runtime
-		return staticToken("runtime-token"), nil
-	})).(*adapter)
-	runtime := &v1alpha1.Runtime{Metadata: v1alpha1.ObjectMeta{Name: "runtime-one"}}
+func TestDiscoverListsAgentsAndRemoteMCPServersInNamespace(t *testing.T) {
+	dyn := newFakeDynamic(
+		kagentObject("Agent", "kagent", "k8s-agent"),
+		kagentObject("Agent", "kagent", "helm-agent"),
+		kagentObject("Agent", "other", "elsewhere"),
+		kagentObject(kindRemoteMCPServer, "kagent", "kagent-tool-server"),
+	)
+	results, err := testAdapter(dyn).Discover(context.Background(), types.DiscoverInput{
+		Runtime: runtimeWithConfig(map[string]any{"kagentUrl": "http://kagent-controller.kagent.svc:8083"}),
+	})
+	require.NoError(t, err)
 
-	tokenSource, err := a.tokenSourceFor(context.Background(), runtime, authConfig{})
-	require.NoError(t, err)
-	assert.Same(t, runtime, received)
-	token, err := tokenSource.Token(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, "runtime-token", token)
+	got := map[string]string{}
+	for _, r := range results {
+		got[r.Name] = r.TargetKind
+		assert.Equal(t, r.Name, r.InternalMeta.RuntimeID)
+		assert.Equal(t, "kagent", r.InternalMeta.RuntimeNamespace)
+	}
+	assert.Equal(t, map[string]string{
+		"k8s-agent":          v1alpha1.KindAgent,
+		"helm-agent":         v1alpha1.KindAgent,
+		"kagent-tool-server": v1alpha1.KindMCPServer,
+	}, got)
 }
 
-func TestRemovePropagatesDeleteFailure(t *testing.T) {
-	client := newFakeClient()
-	client.errs["deleteAgent:kagent/my-deploy-b1e349716edf"] = errors.New("delete failed")
-	_, err := testAdapter(client).Remove(context.Background(), removeInput(nil))
-	require.ErrorContains(t, err, "delete failed")
-}
-
-// TestIndependentDeployments checks apply, reconcile, and removal for a shared catalog Agent.
-func TestIndependentDeployments(t *testing.T) {
-	client := newFakeClient()
-	adapter := testAdapter(client)
-	var inputs []types.ApplyInput
-	for _, name := range []string{"billing-prod", "billing-test"} {
-		in := withRuntimeConfig(byoApplyInput())
-		in.Deployment.InternalMeta = types.DeploymentInternalMeta{}
-		in.Deployment.Metadata.Name = name
-		result, err := adapter.Apply(t.Context(), in)
-		require.NoError(t, err)
-		in.Deployment.InternalMeta = *result.InternalMeta
-		inputs = append(inputs, in)
-	}
-	require.Len(t, client.agents, 2)
-	require.NotEqual(t, inputs[0].Deployment.InternalMeta.RuntimeID, inputs[1].Deployment.InternalMeta.RuntimeID)
-	for _, in := range inputs {
-		result, err := adapter.Apply(t.Context(), in)
-		require.NoError(t, err)
-		require.Equal(t, "kagent", result.InternalMeta.RuntimeNamespace)
-	}
-	require.Len(t, client.agents, 2)
-	_, err := adapter.Remove(t.Context(), types.RemoveInput{Deployment: inputs[0].Deployment, Runtime: inputs[0].Runtime})
+func TestApplyAndDiscoverUseSameRemoteID(t *testing.T) {
+	dyn := newFakeDynamic()
+	a := testAdapter(dyn)
+	input := mcpApplyInput()
+	result, err := a.Apply(context.Background(), input)
 	require.NoError(t, err)
-	require.Len(t, client.agents, 1)
-	require.Contains(t, client.agents, "kagent/"+inputs[1].Deployment.InternalMeta.RuntimeID)
-}
 
-// TestIndependentMCPDeployments verifies separate workloads and deletion without a recorded ID.
-func TestIndependentMCPDeployments(t *testing.T) {
-	client := newFakeClient()
-	adapter := testAdapter(client)
-	var inputs []types.ApplyInput
-	for _, name := range []string{"tools-prod", "tools-test"} {
-		in := withRuntimeConfig(mcpApplyInput())
-		in.Deployment.Metadata.Name = name
-		result, err := adapter.Apply(t.Context(), in)
-		require.NoError(t, err)
-		in.Deployment.InternalMeta = *result.InternalMeta
-		inputs = append(inputs, in)
-	}
-	require.Len(t, client.toolServers, 2)
-	require.NotEqual(t, inputs[0].Deployment.InternalMeta.RuntimeID, inputs[1].Deployment.InternalMeta.RuntimeID)
-	for _, in := range inputs {
-		result, err := adapter.Apply(t.Context(), in)
-		require.NoError(t, err)
-		require.Equal(t, "kagent", result.InternalMeta.RuntimeNamespace)
-	}
-	require.Len(t, client.toolServers, 2)
-	inputs[0].Deployment.InternalMeta.RuntimeID = ""
-	_, err := adapter.Remove(t.Context(), types.RemoveInput{Deployment: inputs[0].Deployment, Runtime: inputs[0].Runtime})
+	discovered, err := a.Discover(context.Background(), types.DiscoverInput{Runtime: input.Runtime})
 	require.NoError(t, err)
-	require.Len(t, client.toolServers, 1)
-	require.Contains(t, client.toolServers, "kagent/"+inputs[1].Deployment.InternalMeta.RuntimeID)
+	require.Len(t, discovered, 1)
+	assert.Equal(t, result.InternalMeta.RuntimeID, discovered[0].InternalMeta.RuntimeID)
 }

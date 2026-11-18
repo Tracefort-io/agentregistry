@@ -1,29 +1,11 @@
 package kagent
 
 import (
-	"errors"
 	"time"
 
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
 	"github.com/agentregistry-dev/agentregistry/pkg/types"
 )
-
-func translationFailure(
-	target v1alpha1.Object,
-	err error,
-	now time.Time,
-) (*types.ApplyResult, error) {
-	switch {
-	case errors.Is(err, ErrDependencyNotReady):
-		return nil, err
-	case errors.Is(err, errInvalidDependency):
-		return FailedApplyResult(target, "InvalidDependency", err.Error(), now), nil
-	case errors.Is(err, errUnsupported):
-		return FailedApplyResult(target, "UnsupportedTarget", err.Error(), now), nil
-	default:
-		return nil, err
-	}
-}
 
 func successfulApplyResult(
 	runtimeID string,
