@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest"
 import { createClient } from "@/lib/api/client"
-import { cancelRequest, changeLabel, decide, fetchMyRequests, fetchReviews, isOpen } from "../approvals"
+import {
+  ApprovalRequest, cancelRequest, changeLabel, decide, fetchMyRequests, fetchReviews, isOpen, isOwnRequest,
+} from "../approvals"
 
 function apiReturning(status: number, body?: unknown) {
   const fetchFn = vi.fn(async (_request: Request) => new Response(body === undefined ? null : JSON.stringify(body), {
@@ -51,10 +53,24 @@ describe("decide", () => {
   })
 
   it.each([
-    [403, "own change"],
+    [403, "policy doesn't let you decide"],
     [409, "already decided"],
   ])("explains HTTP %i", async (status, want) => {
     expect(await decide(apiReturning(status, {}).api, "arq_1", "deny", "")).toContain(want)
+  })
+})
+
+describe("isOwnRequest", () => {
+  const review = { task: { id: "arq_1", status: "pending" }, change: held as ApprovalRequest }
+
+  it("matches the signed-in user's subject", () => {
+    expect(isOwnRequest(review, "carol-sub")).toBe(true)
+    expect(isOwnRequest(review, "dave-sub")).toBe(false)
+  })
+
+  it("is false without a change or a user", () => {
+    expect(isOwnRequest({ task: review.task }, "carol-sub")).toBe(false)
+    expect(isOwnRequest(review, undefined)).toBe(false)
   })
 })
 

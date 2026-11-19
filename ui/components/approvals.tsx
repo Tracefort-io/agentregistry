@@ -5,8 +5,9 @@ import { toast } from "sonner"
 import { RefreshCw } from "lucide-react"
 import { client } from "@/lib/admin-api"
 import {
-  ApprovalRequest, ApprovalReview, cancelRequest, changeLabel, decide, fetchMyRequests, fetchReviews, isOpen,
+  ApprovalRequest, ApprovalReview, cancelRequest, changeLabel, decide, fetchMyRequests, fetchReviews, isOpen, isOwnRequest,
 } from "@/lib/approvals"
+import { useAuth } from "@/lib/auth"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -34,6 +35,8 @@ function when(iso: string): string {
 // awaiting their decision. Which changes need approval and who may approve
 // them is the authorization policy's decision.
 export function Approvals() {
+  const { user } = useAuth()
+  const me = user?.profile.sub
   const [reload, setReload] = useState(0)
   const [mine, setMine] = useState<ApprovalRequest[]>([])
   const [mineError, setMineError] = useState("")
@@ -44,6 +47,8 @@ export function Approvals() {
   const [comment, setComment] = useState("")
   const [deciding, setDeciding] = useState(false)
   const [tab, setTab] = useState("mine")
+  const [toWithdraw, setToWithdraw] = useState<ApprovalRequest | null>(null)
+  const [withdrawing, setWithdrawing] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -65,10 +70,14 @@ export function Approvals() {
     return () => clearInterval(t)
   }, [])
 
-  const withdraw = async (r: ApprovalRequest) => {
-    const err = await cancelRequest(client, r.id)
+  const withdraw = async () => {
+    if (!toWithdraw) return
+    setWithdrawing(true)
+    const err = await cancelRequest(client, toWithdraw.id)
+    setWithdrawing(false)
     if (err) toast.error(err)
-    else toast.success(`Withdrew ${changeLabel(r)}`)
+    else toast.success(`Withdrew ${changeLabel(toWithdraw)}`)
+    setToWithdraw(null)
     setReload((n) => n + 1)
   }
 
@@ -118,17 +127,19 @@ export function Approvals() {
             ) : (
               <div className="divide-y">
                 {mine.map((r) => (
-                  <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-3 text-sm">
-                    <span className="w-44 shrink-0 tabular-nums text-muted-foreground">{when(r.createdAt)}</span>
-                    <span className="min-w-0 flex-1 truncate font-medium">{changeLabel(r)}</span>
-                    <Badge variant="outline" className={statusClass[r.status] ?? ""}>{r.status}</Badge>
-                    {r.detail && <span className="max-w-sm truncate text-muted-foreground" title={r.detail}>{r.detail}</span>}
-                    {r.status === "pending" && (
-                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => void withdraw(r)}>
-                        Withdraw
-                      </Button>
-                    )}
-                    {isOpen(r.status) && r.status !== "pending" && <span className="text-xs text-muted-foreground">applying…</span>}
+                  <div key={r.id} className="px-2 py-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="w-44 shrink-0 tabular-nums text-muted-foreground">{when(r.createdAt)}</span>
+                      <span className="min-w-0 flex-1 break-all font-medium">{changeLabel(r)}</span>
+                      <Badge variant="outline" className={statusClass[r.status] ?? ""}>{r.status}</Badge>
+                      {r.status === "pending" && (
+                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setToWithdraw(r)}>
+                          Withdraw
+                        </Button>
+                      )}
+                      {isOpen(r.status) && r.status !== "pending" && <span className="text-xs text-muted-foreground">applying…</span>}
+                    </div>
+                    {r.detail && <p className="mt-1 break-all text-muted-foreground sm:pl-[11.75rem]">{r.detail}</p>}
                   </div>
                 ))}
               </div>
@@ -150,12 +161,16 @@ export function Approvals() {
                     className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-2 py-3 text-sm hover:bg-muted/40"
                     onClick={() => setSelected(rv)}
                   >
-                    <span className="min-w-0 flex-1 truncate font-medium">
+                    <span className="min-w-0 flex-1 break-all font-medium">
                       {rv.change ? changeLabel(rv.change) : rv.task.display?.title ?? rv.task.id}
                     </span>
-                    <span className="text-muted-foreground">
-                      by {rv.change?.requesterUsername || rv.change?.requesterSubject || rv.task.request?.subject?.id || "unknown"}
-                    </span>
+                    {isOwnRequest(rv, me) ? (
+                      <Badge variant="outline">Your request</Badge>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        by {rv.change?.requesterUsername || rv.change?.requesterSubject || rv.task.request?.subject?.id || "unknown"}
+                      </span>
+                    )}
                     {rv.change && <span className="tabular-nums text-muted-foreground">{when(rv.change.createdAt)}</span>}
                     <Button size="sm" className="h-7 text-xs">Review</Button>
                   </div>
@@ -173,6 +188,7 @@ export function Approvals() {
             <DialogDescription>
               Requested by {selected?.change?.requesterUsername || selected?.change?.requesterSubject || "unknown"}
               {selected?.change ? ` on ${when(selected.change.createdAt)}` : ""}. Approving applies exactly this document.
+              {selected && isOwnRequest(selected, me) && " This is your own request."}
             </DialogDescription>
           </DialogHeader>
           <pre className="max-h-[45vh] overflow-auto rounded-md bg-muted p-3 text-xs">
@@ -182,6 +198,24 @@ export function Approvals() {
           <DialogFooter>
             <Button variant="outline" onClick={() => void submit("deny")} disabled={deciding}>Deny</Button>
             <Button onClick={() => void submit("approve")} disabled={deciding}>Approve</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={toWithdraw !== null} onOpenChange={(open) => !open && !withdrawing && setToWithdraw(null)}>
+        <DialogContent onClose={() => !withdrawing && setToWithdraw(null)}>
+          <DialogHeader>
+            <DialogTitle>Withdraw this request?</DialogTitle>
+            <DialogDescription>
+              {toWithdraw ? changeLabel(toWithdraw) : ""} won&apos;t be applied, and approvers can no longer decide it.
+              To make the change later, apply it again.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setToWithdraw(null)} disabled={withdrawing}>Keep it</Button>
+            <Button variant="destructive" onClick={() => void withdraw()} disabled={withdrawing}>
+              {withdrawing ? "Withdrawing…" : "Withdraw"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

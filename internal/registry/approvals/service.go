@@ -378,8 +378,19 @@ func (s *Service) Cancel(ctx context.Context, id, subject string, admin bool, re
 	if _, err := s.ars.Cancel(ctx, r.StatusEndpoint, reason); err != nil {
 		return r, err
 	}
-	s.finish(auth.WithSystemContext(ctx), r, v1alpha1store.ApprovalCancelled, "cancelled by "+subject)
+	s.finish(auth.WithSystemContext(ctx), r, v1alpha1store.ApprovalCancelled, "cancelled by "+callerName(ctx, subject))
 	return s.store.GetApprovalRequest(auth.WithSystemContext(ctx), id)
+}
+
+// callerName names the caller in a request's detail: their username, or
+// their subject when the token carries none.
+func callerName(ctx context.Context, subject string) string {
+	if session, ok := auth.AuthSessionFrom(ctx); ok && session != nil {
+		if name := session.Principal().Username; name != "" {
+			return name
+		}
+	}
+	return subject
 }
 
 // ErrNotPending is an action on a request that is no longer pending.

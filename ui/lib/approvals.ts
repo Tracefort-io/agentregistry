@@ -76,7 +76,9 @@ export async function decide(api: Api, id: string, decision: "approve" | "deny",
   const { response } = await api.post<{ 200: ApprovalReview }, unknown, false>({
     url: `/v0/approval-reviews/${encodeURIComponent(id)}/decision`, body, headers: { "Content-Type": "application/json" },
   })
-  if (response?.status === 403) return "You may not decide this request. Nobody approves their own change."
+  // Who may decide is the authorization policy's call; the reason isn't
+  // returned, so don't guess at it.
+  if (response?.status === 403) return "The authorization policy doesn't let you decide this request."
   if (response?.status === 409) return "The request was already decided, or you already voted."
   return response?.ok ? "" : explain(response?.status, "record the decision")
 }
@@ -85,6 +87,12 @@ export async function decide(api: Api, id: string, decision: "approve" | "deny",
 export function changeLabel(r: Pick<ApprovalRequest, "verb" | "kind" | "namespace" | "name" | "tag">): string {
   const path = `${r.namespace || "default"}/${r.name}${r.tag ? `@${r.tag}` : ""}`
   return `${r.verb} ${r.kind} ${path}`
+}
+
+// isOwnRequest reports a review of the signed-in user's own change. It only
+// labels the request; whether they may decide it is the policy's call.
+export function isOwnRequest(review: ApprovalReview, subject: string | undefined): boolean {
+  return !!subject && review.change?.requesterSubject === subject
 }
 
 // isOpen reports a request that may still change.

@@ -404,6 +404,24 @@ func TestCancelAndVisibility(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotPending)
 }
 
+func TestCancelNamesTheCaller(t *testing.T) {
+	ars := newFakeARS(t)
+	s, _ := newService(t, ars, &applier{})
+	stage := func() string {
+		id, _, err := s.Stage(carolCtx(), types.ApprovalStageInput{Verb: "apply", Kind: v1alpha1.KindDeployment, Namespace: "prod", Name: "bot", Object: deployment(), Denial: approvalRequired(t)})
+		require.NoError(t, err)
+		return id
+	}
+
+	r, err := s.Cancel(carolCtx(), stage(), "carol-sub", false, "")
+	require.NoError(t, err)
+	assert.Equal(t, "cancelled by carol", r.Detail, "the username, when the token has one")
+
+	r, err = s.Cancel(context.Background(), stage(), "carol-sub", false, "")
+	require.NoError(t, err)
+	assert.Equal(t, "cancelled by carol-sub", r.Detail, "else the subject")
+}
+
 func TestARSClientStaysOnThePDP(t *testing.T) {
 	ars := newFakeARS(t)
 	pdp, err := authzen.New(authzen.Config{BaseURL: ars.srv.URL})
