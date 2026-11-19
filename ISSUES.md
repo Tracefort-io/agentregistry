@@ -1,22 +1,25 @@
 # Pending issues
 
-Open work and known problems in this repository. Remove an entry when it's fixed, and say in the commit which one it closes. Last updated 2026-11-12.
+Open work and known problems in this repository. Remove an entry when it's fixed, and say in the commit which one it closes. Last updated 2026-11-19.
 
 ## In progress
 
-### 1. Approval workflows for publish and deploy: not deployed or tested through agentgateway
+### 1. Approval workflows for publish and deploy: known flaws and gaps
 
-The code is on the `approvals` branch, uncommitted, and has been tested only locally, against opa-authzen-plugin built from main, without agentgateway or Keycloak. See [docs/approvals.md](docs/approvals.md). To verify it on k3s:
+Approvals ([docs/approvals.md](docs/approvals.md)) run on the k3s cluster: opa-authzen-plugin built from its main branch hosts the access request service, and the approval rules are in the policy repository. The deployment is control-plane-prod's `16-approvals.sh`. Tested end to end through agentgateway on 2026-11-19:
 
-- **PDP:** opa-authzen-plugin's access request service isn't released yet (it's on main after `v0.10.0`), so it needs an image built from main. It also needs its configuration (database, signing key, caller and approver auth, `binding_context_members: ["document_sha256"]`) and the approval rules from [approvals.rego](docs/auth/authzen/approvals.rego) merged into the deployed policy.
-- **Gateway:** agentgateway's coarse rule allows writes under `/v0/` only to writers and admins, so an approver without one of those roles is refused at `POST /v0/approval-reviews/{id}/decision`.
-- **Keycloak:** a confidential client for the registry (client credentials, with the PDP as audience), and an approver user listed in the policy's `data.registry.approvers`.
-- **Callbacks:** the PDP only calls `https` URLs, so a registry served over plain HTTP learns outcomes by polling (`APPROVALS_POLL_INTERVAL`).
+- a writer's change is held; an approver approves it and the registry applies it, or denies it; the writer withdraws one; a writer's delete is held too;
+- an approver can't decide their own change; a reader can't decide; an admin applies directly;
+- the Approvals page in a browser, as the writer and the approver.
+
+Not tested there: a held Deployment (Rego tests only), expiry after `task_ttl`, and an `out_of_scope` approval through the registry (unit tests and a local run against the PDP only). Callbacks are off, because the PDP only calls `https` URLs; the registry polls (`APPROVALS_POLL_INTERVAL`).
 
 Known flaws:
 
 - **Duplicated status:** the registry's `approval_requests` table keeps a copy of each request's status, which the access request service already tracks. The registry needs only the held document and the requester.
 - **A decision in code, not Rego:** who may see or withdraw a held change under `/v0/approvals` (the requester or an admin) is decided in the registry's code, not by OPA (`ars_caller`).
+- **Decisions missing from the audit log:** the registry records a held change (`request-approval`) and the approved apply, but not who approved, denied or withdrew it. The PDP records those as OpenTelemetry logs, which reach nothing unless it has an OTLP endpoint.
+- **Reference policy's data path:** [approvals.rego](docs/auth/authzen/approvals.rego) reads `data.registry.*`, but a `data.json` in a policy repository's `authzen/` directory loads at `data.authzen.registry`. The deployed policy had to be adapted.
 
 Not built yet:
 
@@ -26,14 +29,15 @@ Not built yet:
 - **Static approvers:** approvers are a static list in policy data.
 - **Notifications:** none, for example to Slack or Teams.
 
-### 2. Rego policies: not tested against a real git host, OPAL or a cluster
+### 2. Rego policies: gaps
 
-Policy authoring and publishing ([docs/policies.md](docs/policies.md)) is tested with unit tests: git writes against a real git server (`git http-backend`), the GitHub and GitLab APIs against fakes, and Rego with the OPA library. Nothing has run against GitHub, GitLab, OPAL or OPA on k3s, through agentgateway, or in a browser. To try it:
+Policy authoring and publishing ([docs/policies.md](docs/policies.md)) runs on the k3s cluster against a GitHub repository, with OPAL loading merges into OPA (control-plane-prod's `12-policies.sh`). Tested end to end through agentgateway: a policy author publishes a pull request, it's merged on GitHub, the merge webhook tags the version (`authzen/v1` to `v4`), and OPAL loads it into OPA. The webhook reaches the registry through a named Cloudflare tunnel, which only passes `POST /policies/webhook`.
 
-- **Repository:** a policy repository with branch protection, a token in a registry Secret, and a merge webhook to `/policies/webhook`.
-- **OPAL:** an OPAL server and client tracking the same branch, loading into the cluster's OPA.
-- **PDP policy:** the `policy-author` rule from [registry.rego](docs/auth/authzen/registry.rego) merged into the deployed policy.
-- **Gateway:** agentgateway must let `POST /v0/policies/...` through for policy authors, and pass `/policies/webhook` without a token.
+Not tested: GitLab.
+
+Known flaws:
+
+- **Versions list:** it shows the merge commit's message and author, not the pull request's title and author.
 
 Not built yet:
 
