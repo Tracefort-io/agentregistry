@@ -55,6 +55,57 @@ func TestPermissionsWriterAndAdmin(t *testing.T) {
 	assert.Equal(t, "*", pdp.batches[0].Evaluations[1].Resource.ID, "every namespace")
 }
 
+func TestPermissionsRequestable(t *testing.T) {
+	// A writer whose publishing needs approval: apply and delete on Agents
+	// and MCPServers are requestable denials; on Secrets they are plain
+	// denials (no binding token); everything else is permitted.
+	approvalKinds := map[string]bool{"agent": true, "mcpserver": true}
+	writes := map[string]bool{"apply": true, "delete": true}
+	pdp := newMockPDP(func(r authzen.EvaluationRequest) bool {
+		return r.Action.Name != "admin" && !writes[r.Action.Name]
+	})
+	pdp.respContext = func(r authzen.EvaluationRequest) map[string]any {
+		switch {
+		case approvalKinds[r.Resource.Type] && writes[r.Action.Name]:
+			return map[string]any{
+				"reason":         "approval_required",
+				"access_request": map[string]any{"binding_token": "tok", "template": "registry_change"},
+			}
+		case r.Resource.Type == "secret" && writes[r.Action.Name]:
+			return map[string]any{"reason": "denied", "access_request": map[string]any{"template": "registry_change"}}
+		case r.Resource.Type == "prompt" && r.Action.Name == "read":
+			// A permit is never requestable, whatever its context says.
+			return map[string]any{"access_request": map[string]any{"binding_token": "tok"}}
+		}
+		return nil
+	}
+	p := newPEP(t, pdp, nil)
+
+	got, err := p.Permissions(userCtx(alice()), "default")
+	require.NoError(t, err)
+
+	tests := []struct {
+		kind            string
+		wantAllowed     []string
+		wantRequestable []string
+	}{
+		{v1alpha1.KindAgent, []string{"read", "list", "deploy"}, []string{"apply", "delete"}},
+		{v1alpha1.KindMCPServer, []string{"read", "list", "deploy"}, []string{"apply", "delete"}},
+		{v1alpha1.KindSecret, []string{"read", "list"}, []string{}},
+		{v1alpha1.KindPrompt, []string{"read", "list"}, []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.kind, func(t *testing.T) {
+			assert.Equal(t, tt.wantAllowed, got.Kinds[tt.kind])
+			assert.Equal(t, tt.wantRequestable, got.Requestable[tt.kind])
+		})
+	}
+	assert.False(t, got.Admin)
+	assert.True(t, got.Requests(v1alpha1.KindMCPServer, "apply"))
+	assert.False(t, got.Allows(v1alpha1.KindMCPServer, "apply"))
+	assert.Len(t, got.Requestable, len(BuiltinKinds), "every covered kind is listed, even with nothing requestable")
+}
+
 func TestPermissionsChunksLargeBatches(t *testing.T) {
 	extra := make([]string, 30)
 	for i := range extra {

@@ -44,11 +44,11 @@ func (e *ApprovalRequired) Unwrap() error { return e.err }
 // requestable returns an *ApprovalRequired when the PDP's denial carries
 // context.access_request with a binding token, and nil otherwise.
 func requestable(req authzen.EvaluationRequest, respCtx map[string]any, detail string) error {
-	ar, _ := respCtx["access_request"].(map[string]any)
-	token, _ := ar["binding_token"].(string)
+	token := bindingToken(respCtx)
 	if token == "" {
 		return nil
 	}
+	ar, _ := respCtx["access_request"].(map[string]any)
 	denial := map[string]any{"binding_token": token}
 	for _, k := range []string{"expires_at", "template"} {
 		if v, ok := ar[k].(string); ok && v != "" {
@@ -61,6 +61,14 @@ func requestable(req authzen.EvaluationRequest, respCtx map[string]any, detail s
 		}
 	}
 	return &ApprovalRequired{err: forbidden("approval required: " + detail), Request: req, Denial: denial}
+}
+
+// bindingToken returns the binding token of a requestable denial, or "" when
+// the PDP's context carries none: without it no access request can be made.
+func bindingToken(respCtx map[string]any) string {
+	ar, _ := respCtx["access_request"].(map[string]any)
+	token, _ := ar["binding_token"].(string)
+	return token
 }
 
 // withDocument adds the document's hash to an apply's context. A Secret's

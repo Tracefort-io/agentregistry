@@ -1,5 +1,6 @@
 // Package me serves GET /v0/me: who the caller is and what they may do, so
-// clients such as the web UI can offer only the actions that will succeed.
+// clients such as the web UI can offer only the actions that will succeed,
+// or that an approver can approve.
 package me
 
 import (
@@ -30,6 +31,7 @@ type Body struct {
 	Enforced      bool                `json:"enforced" doc:"Whether permissions come from the authorization service; false means the registry enforces none"`
 	Admin         bool                `json:"admin" doc:"Whether the caller is a registry admin"`
 	Permissions   map[string][]string `json:"permissions" doc:"Actions the caller may take per kind: read, list, apply, delete, deploy"`
+	Requestable   map[string][]string `json:"requestable" doc:"Actions the caller may ask approval for per kind: refused now, applied once an approver approves"`
 }
 
 type input struct {
@@ -53,8 +55,9 @@ func Register(api huma.API, pathPrefix string, cfg Config) {
 		Method:      http.MethodGet,
 		Path:        pathPrefix + "/me",
 		Summary:     "Get the caller's identity and permissions",
-		Description: "Who the caller is and which actions they may take on each kind in a namespace. " +
-			"Advisory, for showing only actions that will succeed: every request is still authorized on its own.",
+		Description: "Who the caller is, which actions they may take on each kind in a namespace, and which they " +
+			"may ask approval for. Advisory, for showing only actions that will succeed or can be approved: " +
+			"every request is still authorized on its own.",
 		Tags: []string{"auth"},
 	}, func(ctx context.Context, in *input) (*types.Response[Body], error) {
 		namespace := strings.TrimSpace(in.Namespace)
@@ -84,6 +87,10 @@ func Register(api huma.API, pathPrefix string, cfg Config) {
 		}
 		body.Admin = perms.Admin
 		body.Permissions = perms.Kinds
+		body.Requestable = perms.Requestable
+		if body.Requestable == nil {
+			body.Requestable = map[string][]string{}
+		}
 		return &types.Response[Body]{Body: body}, nil
 	})
 }

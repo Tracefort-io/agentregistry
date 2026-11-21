@@ -9,11 +9,11 @@ import (
 )
 
 // Permissions asks the PDP, in execute_all batches, which actions the caller
-// may take on each covered kind in namespace ("" for every namespace), and
-// whether the caller is a registry admin. Each kind is asked about as its
-// collection, id "<namespace>/*" (or "*"), the resource lists use. A
-// SystemSession may do everything; no session is a 401 and a PDP failure a
-// 503.
+// may take on each covered kind in namespace ("" for every namespace), which
+// they may ask approval for (a requestable denial), and whether the caller is
+// a registry admin. Each kind is asked about as its collection, id
+// "<namespace>/*" (or "*"), the resource lists use. A SystemSession may do
+// everything; no session is a 401 and a PDP failure a 503.
 func (p *PEP) Permissions(ctx context.Context, namespace string) (types.Permissions, error) {
 	c, err := p.callerFrom(ctx)
 	if err != nil {
@@ -36,9 +36,13 @@ func (p *PEP) Permissions(ctx context.Context, namespace string) (types.Permissi
 		}
 	}
 
-	out := types.Permissions{Kinds: make(map[string][]string, len(p.kinds))}
+	out := types.Permissions{
+		Kinds:       make(map[string][]string, len(p.kinds)),
+		Requestable: make(map[string][]string, len(p.kinds)),
+	}
 	for _, kind := range p.kinds {
 		out.Kinds[kind] = []string{}
+		out.Requestable[kind] = []string{}
 	}
 	reqCtx := requestContext(ctx)
 	for start := 0; start < len(checks); start += evaluationsChunk {
@@ -64,14 +68,15 @@ func (p *PEP) Permissions(ctx context.Context, namespace string) (types.Permissi
 			return types.Permissions{}, unavailable(err)
 		}
 		for i, d := range resp.Evaluations {
-			if !d.Decision {
-				continue
-			}
-			if chunk[i].kind == "" {
+			kind, action := chunk[i].kind, chunk[i].action
+			switch {
+			case d.Decision && kind == "":
 				out.Admin = true
-				continue
+			case d.Decision:
+				out.Kinds[kind] = append(out.Kinds[kind], action)
+			case kind != "" && bindingToken(d.Context) != "":
+				out.Requestable[kind] = append(out.Requestable[kind], action)
 			}
-			out.Kinds[chunk[i].kind] = append(out.Kinds[chunk[i].kind], chunk[i].action)
 		}
 	}
 	return out, nil

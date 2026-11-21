@@ -35,7 +35,7 @@ import { DeployDialog } from "@/components/deploy-dialog"
 import { listServersV0, listSkillsV0, listAgentsV0, listPromptsV0, ServerResponse, SkillResponse, AgentResponse, PromptResponse } from "@/lib/admin-api"
 import MCPIcon from "@/components/icons/mcp"
 import { CATALOG_SECTIONS, useCatalogNav } from "@/lib/catalog-nav"
-import { useCan } from "@/lib/permissions"
+import { useCan, useCanRequest, type Action } from "@/lib/permissions"
 import {
   Search,
   RefreshCw,
@@ -74,19 +74,29 @@ interface GroupedAgent extends AgentResponse {
 export default function AdminPage() {
   const { activeTab, setCounts } = useCatalogNav()
   const activeSection = CATALOG_SECTIONS.find((s) => s.key === activeTab)!
-  // Offer only the actions the signed-in user may take; the registry still
-  // checks every request.
+  // Offer only the actions the signed-in user may take, or may ask an
+  // approver for (adding and deploying go through /v0/apply, which holds the
+  // change until it is approved); the registry still checks every request.
   const can = useCan()
+  const canRequest = useCanRequest()
+  const offers = (kind: string, action: Action) => can(kind, action) || canRequest(kind, action)
+  const needsApproval = (kind: string, action: Action) => !can(kind, action) && canRequest(kind, action)
   const canAdd = {
-    server: can("MCPServer", "apply"),
-    skill: can("Skill", "apply"),
-    agent: can("Agent", "apply"),
-    prompt: can("Prompt", "apply"),
+    server: offers("MCPServer", "apply"),
+    skill: offers("Skill", "apply"),
+    agent: offers("Agent", "apply"),
+    prompt: offers("Prompt", "apply"),
+  }
+  const addNeedsApproval = {
+    server: needsApproval("MCPServer", "apply"),
+    skill: needsApproval("Skill", "apply"),
+    agent: needsApproval("Agent", "apply"),
+    prompt: needsApproval("Prompt", "apply"),
   }
   const canAddAny = Object.values(canAdd).some(Boolean)
   // Deploying creates a Deployment of the target.
-  const canDeployServer = can("MCPServer", "deploy") && can("Deployment", "apply")
-  const canDeployAgent = can("Agent", "deploy") && can("Deployment", "apply")
+  const canDeployServer = can("MCPServer", "deploy") && offers("Deployment", "apply")
+  const canDeployAgent = can("Agent", "deploy") && offers("Deployment", "apply")
   const [servers, setServers] = useState<ServerResponse[]>([])
   const [groupedServers, setGroupedServers] = useState<GroupedServer[]>([])
   const [groupedSkills, setGroupedSkills] = useState<GroupedSkill[]>([])
@@ -458,24 +468,28 @@ export default function AdminPage() {
                     <DropdownMenuItem onClick={() => setAddServerDialogOpen(true)}>
                       <span className="mr-2 h-4 w-4 flex items-center justify-center"><MCPIcon /></span>
                       MCP Server
+                      {addNeedsApproval.server && <NeedsApprovalHint />}
                     </DropdownMenuItem>
                   )}
                   {canAdd.skill && (
                     <DropdownMenuItem onClick={() => setAddSkillDialogOpen(true)}>
                       <Zap className="mr-2 h-4 w-4" />
                       Skill
+                      {addNeedsApproval.skill && <NeedsApprovalHint />}
                     </DropdownMenuItem>
                   )}
                   {canAdd.agent && (
                     <DropdownMenuItem onClick={() => setAddAgentDialogOpen(true)}>
                       <Bot className="mr-2 h-4 w-4" />
                       Agent
+                      {addNeedsApproval.agent && <NeedsApprovalHint />}
                     </DropdownMenuItem>
                   )}
                   {canAdd.prompt && (
                     <DropdownMenuItem onClick={() => setAddPromptDialogOpen(true)}>
                       <FileText className="mr-2 h-4 w-4" />
                       Prompt
+                      {addNeedsApproval.prompt && <NeedsApprovalHint />}
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>
@@ -697,6 +711,12 @@ export default function AdminPage() {
       </Sheet>
     </main>
   )
+}
+
+// NeedsApprovalHint marks an action the registry holds until an approver
+// approves it.
+function NeedsApprovalHint() {
+  return <span className="ml-auto pl-3 text-xs text-muted-foreground">needs approval</span>
 }
 
 function EmptyState({ icon, title, description, action }: {

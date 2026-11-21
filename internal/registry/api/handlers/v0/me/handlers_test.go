@@ -52,6 +52,23 @@ func TestMeWithoutAuthorization(t *testing.T) {
 	assert.True(t, b.Admin)
 	assert.Equal(t, "default", b.Namespace)
 	assert.Equal(t, types.KindActions(v1alpha1.KindAgent), b.Permissions[v1alpha1.KindAgent])
+	assert.Equal(t, map[string][]string{}, b.Requestable, "nothing needs approval without authorization")
+}
+
+func TestMeRequestable(t *testing.T) {
+	perms := func(context.Context, string) (types.Permissions, error) {
+		return types.Permissions{
+			Kinds:       map[string][]string{v1alpha1.KindAgent: {"read", "list", "deploy"}},
+			Requestable: map[string][]string{v1alpha1.KindAgent: {"apply", "delete"}},
+		}, nil
+	}
+	principal := auth.Principal{Subject: "charlie-sub", Roles: []string{"registry-writer"}}
+	resp := newAPI(t, Config{Kinds: kinds, Permissions: perms}, session{principal}).Get("/v0/me")
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	b := decode(t, resp.Body.Bytes())
+	assert.Equal(t, map[string][]string{v1alpha1.KindAgent: {"read", "list", "deploy"}}, b.Permissions)
+	assert.Equal(t, map[string][]string{v1alpha1.KindAgent: {"apply", "delete"}}, b.Requestable)
 }
 
 func TestMeWithAuthorization(t *testing.T) {

@@ -74,6 +74,8 @@ components:
       properties:
         apiVersion:
           type: string
+        approvalRequest:
+          type: string
         error:
           type: string
         kind:
@@ -101,6 +103,74 @@ components:
           - "null"
       required:
       - results
+      type: object
+    Body:
+      additionalProperties: false
+      properties:
+        admin:
+          description: Whether the caller is a registry admin
+          type: boolean
+        authenticated:
+          description: Whether the request carried a verified identity
+          type: boolean
+        enforced:
+          description: Whether permissions come from the authorization service; false
+            means the registry enforces none
+          type: boolean
+        groups:
+          items:
+            type: string
+          type:
+          - array
+          - "null"
+        isClient:
+          description: Whether the caller is a client acting for itself
+          type: boolean
+        issuer:
+          description: The issuer of the caller's token
+          type: string
+        namespace:
+          description: The namespace the permissions apply to; all for every namespace
+          type: string
+        permissions:
+          additionalProperties:
+            items:
+              type: string
+            type:
+            - array
+            - "null"
+          description: 'Actions the caller may take per kind: read, list, apply, delete,
+            deploy'
+          type: object
+        requestable:
+          additionalProperties:
+            items:
+              type: string
+            type:
+            - array
+            - "null"
+          description: 'Actions the caller may ask approval for per kind: refused
+            now, applied once an approver approves'
+          type: object
+        roles:
+          items:
+            type: string
+          type:
+          - array
+          - "null"
+        subject:
+          description: The caller's subject (token sub claim)
+          type: string
+        username:
+          description: A display name for the caller
+          type: string
+      required:
+      - authenticated
+      - namespace
+      - enforced
+      - admin
+      - permissions
+      - requestable
       type: object
     CommandEntry:
       additionalProperties: false
@@ -2581,6 +2651,38 @@ paths:
                 $ref: '#/components/schemas/ErrorModel'
           description: Error
       summary: List all tags of a MCPServer
+  /v0/me:
+    get:
+      description: 'Who the caller is, which actions they may take on each kind in
+        a namespace, and which they may ask approval for. Advisory, for showing only
+        actions that will succeed or can be approved: every request is still authorized
+        on its own.'
+      operationId: get-me
+      parameters:
+      - description: Namespace to report permissions for; all for every namespace
+        explode: false
+        in: query
+        name: namespace
+        schema:
+          default: default
+          description: Namespace to report permissions for; all for every namespace
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Body'
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Error
+      summary: Get the caller's identity and permissions
+      tags:
+      - auth
   /v0/models:
     get:
       operationId: list-models

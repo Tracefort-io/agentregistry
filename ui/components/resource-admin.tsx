@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Plus, RefreshCw, Trash2 } from "lucide-react"
 import { applyBatch, client, deleteBatch } from "@/lib/admin-api"
-import { useCan } from "@/lib/permissions"
+import { useCan, useCanRequest } from "@/lib/permissions"
 import { AdminItem, ApplyResult, deleteDocument, failedResults, pendingResults, RESOURCE_KINDS, ResourceKind, ResourceKindName } from "@/lib/resource-kinds"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -43,9 +43,12 @@ function yamlBody(text: string): Blob {
 // kind's settings, which include functions.
 export function ResourceAdmin({ kindName }: { kindName: ResourceKindName }) {
   const kind = RESOURCE_KINDS[kindName]
+  // Adding and deleting go through /v0/apply, which holds a change that
+  // needs approval, so both are offered when the user may ask for them.
   const can = useCan()
-  const canAdd = can(kind.kind, "apply")
-  const canDelete = can(kind.kind, "delete")
+  const canRequest = useCanRequest()
+  const canAdd = can(kind.kind, "apply") || canRequest(kind.kind, "apply")
+  const canDelete = can(kind.kind, "delete") || canRequest(kind.kind, "delete")
 
   const [items, setItems] = useState<AdminItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -82,13 +85,18 @@ export function ResourceAdmin({ kindName }: { kindName: ResourceKindName }) {
     if (!toDelete) return
     setDeleting(true)
     const { data, response } = await deleteBatch({ body: yamlBody(deleteDocument(kind, toDelete)) })
-    const failed = failedResults(data?.results as ApplyResult[] | undefined)
+    const results = data?.results as ApplyResult[] | undefined
+    const failed = failedResults(results)
     setDeleting(false)
     if (!response?.ok || failed.length > 0) {
       toast.error(failed[0]?.error || `Could not delete ${itemLabel(toDelete)} (HTTP ${response?.status ?? "error"}).`)
       return
     }
-    toast.success(`Deleted ${itemLabel(toDelete)}`)
+    if (pendingResults(results).length > 0) {
+      toast.info(`Deleting ${itemLabel(toDelete)} needs approval. It will be deleted once approved; follow it under Approvals.`)
+    } else {
+      toast.success(`Deleted ${itemLabel(toDelete)}`)
+    }
     setToDelete(null)
     load()
   }

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 import { createClient } from "@/lib/api/client"
-import { canFrom, loadCan, loadPermissions, PERMISSIONS_NAMESPACE } from "../permissions"
+import { canFrom, canRequestFrom, loadCan, loadPermissions, PERMISSIONS_NAMESPACE } from "../permissions"
 
 function apiReturning(status: number, body?: unknown) {
   const fetchFn = vi.fn(async (_request: Request) => new Response(body === undefined ? null : JSON.stringify(body), {
@@ -25,6 +25,31 @@ describe("canFrom", () => {
     ["Secret", "read", false],
   ] as const)("%s %s -> %s", (kind, action, want) => {
     expect(can(kind, action)).toBe(want)
+  })
+})
+
+describe("canRequestFrom", () => {
+  // A writer: publishing an MCP server needs an approval.
+  const canRequest = canRequestFrom({
+    enforced: true,
+    admin: false,
+    permissions: { MCPServer: ["read", "list", "deploy"] },
+    requestable: { MCPServer: ["apply", "delete"], Secret: [] },
+  })
+
+  it.each([
+    ["MCPServer", "apply", true],
+    ["MCPServer", "delete", true],
+    ["MCPServer", "read", false],
+    ["Secret", "apply", false],
+    ["Agent", "apply", false],
+  ] as const)("%s %s -> %s", (kind, action, want) => {
+    expect(canRequest(kind, action)).toBe(want)
+  })
+
+  it("requests nothing from a registry that predates approvals", () => {
+    const canRequest = canRequestFrom({ enforced: true, admin: false, permissions: {} })
+    expect(canRequest("MCPServer", "apply")).toBe(false)
   })
 })
 
@@ -69,5 +94,20 @@ describe("loadPermissions", () => {
 
   it("is not admin when the answer is unavailable", async () => {
     expect((await loadPermissions(apiReturning(503).api)).admin).toBe(false)
+  })
+
+  it("reads the actions that need approval", async () => {
+    const p = await loadPermissions(apiReturning(200, {
+      enforced: true,
+      admin: false,
+      permissions: { MCPServer: ["read", "list"] },
+      requestable: { MCPServer: ["apply"] },
+    }).api)
+    expect(p.can("MCPServer", "apply")).toBe(false)
+    expect(p.canRequest("MCPServer", "apply")).toBe(true)
+  })
+
+  it.each([404, 503])("requests nothing when the answer has no requestable actions (%i)", async (status) => {
+    expect((await loadPermissions(apiReturning(status).api)).canRequest("MCPServer", "apply")).toBe(false)
   })
 })

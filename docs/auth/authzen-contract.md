@@ -104,20 +104,23 @@ Results of another type are ignored, and so are namespaces outside a namespace-s
 
 ## Permissions (`GET /v0/me`)
 
-`GET /v0/me?namespace=<ns>` tells a client such as the web UI who the caller is and which actions they may take, so it can show only the actions that will succeed. The registry sends one `evaluations` batch with `execute_all` (split into batches of 100 if needed):
+`GET /v0/me?namespace=<ns>` tells a client such as the web UI who the caller is, which actions they may take, and which they may ask an approver for, so it can show only the actions that will succeed or can be approved. The registry sends one `evaluations` batch with `execute_all` (split into batches of 100 if needed):
 
 - `admin` on `{"type": "registry", "id": "agentregistry"}`,
 - for each kind, `read`, `list`, `apply` and `delete` (and `deploy` for `agent` and `mcpserver`) on the kind's collection: `id` `<namespace>/*`, or `*` for `namespace=all`.
 
+A permit puts the action in `permissions`. A denial whose context is a requestable denial (`context.access_request` with a `binding_token`, see [approvals](../approvals.md)) puts it in `requestable`: `POST /v0/apply` will hold that change until an approver approves it. Any other denial puts it in neither.
+
 ```json
 {
-  "authenticated": true, "subject": "<sub>", "issuer": "<iss>", "username": "bob",
-  "roles": ["registry-reader"], "namespace": "default", "enforced": true, "admin": false,
-  "permissions": {"Agent": ["read", "list"], "Secret": []}
+  "authenticated": true, "subject": "<sub>", "issuer": "<iss>", "username": "charlie",
+  "roles": ["registry-writer"], "namespace": "default", "enforced": true, "admin": false,
+  "permissions": {"MCPServer": ["read", "list", "deploy"], "Secret": ["read", "list", "apply", "delete"]},
+  "requestable": {"MCPServer": ["apply", "delete"], "Secret": []}
 }
 ```
 
-The answer is advisory: every request is still authorized on its own, and a policy that decides per resource may deny an action the collection check allowed. Without authorization the registry reports every action as allowed with `enforced: false`.
+The answer is advisory: every request is still authorized on its own, and a policy that decides per resource may deny an action the collection check allowed. Only `POST /v0/apply` holds changes for approval; the per-resource `DELETE` endpoints refuse a requestable action. Without authorization the registry reports every action as allowed with `enforced: false`, and nothing as requestable.
 
 ## Responses
 

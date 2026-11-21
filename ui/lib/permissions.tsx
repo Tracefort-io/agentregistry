@@ -14,6 +14,9 @@ export interface Me {
   enforced: boolean
   admin: boolean
   permissions: Record<string, string[]>
+  // requestable lists the actions the user may ask an approver for. A
+  // registry that predates approvals leaves it out.
+  requestable?: Record<string, string[]>
 }
 
 // Can answers whether the signed-in user may take an action on a kind.
@@ -27,14 +30,23 @@ export function canFrom(me: Me): Can {
   return (kind, action) => me.permissions[kind]?.includes(action) ?? false
 }
 
+// canRequestFrom turns a /v0/me answer into a Can for the actions that need
+// an approval.
+export function canRequestFrom(me: Me): Can {
+  return (kind, action) => me.requestable?.[kind]?.includes(action) ?? false
+}
+
 // Permissions is what the UI knows the signed-in user may do.
 export interface Permissions {
   can: Can
+  // canRequest is true for an action the user may not take directly but may
+  // ask an approver for: the registry holds the change until it is approved.
+  canRequest: Can
   // admin is true for registry admins, who may read the audit log.
   admin: boolean
 }
 
-const none: Permissions = { can: allowNothing, admin: false }
+const none: Permissions = { can: allowNothing, canRequest: allowNothing, admin: false }
 
 // loadPermissions asks the registry what the user may do. It hides every
 // action when the answer is unavailable (the registry still refuses what is
@@ -44,9 +56,9 @@ export async function loadPermissions(api: Pick<typeof client, "get">): Promise<
     url: "/v0/me",
     query: { namespace: PERMISSIONS_NAMESPACE },
   })
-  if (response?.status === 404) return { can: allowEverything, admin: true }
+  if (response?.status === 404) return { can: allowEverything, canRequest: allowNothing, admin: true }
   if (!response?.ok || !data || typeof data.permissions !== "object") return none
-  return { can: canFrom(data), admin: data.admin === true }
+  return { can: canFrom(data), canRequest: canRequestFrom(data), admin: data.admin === true }
 }
 
 // loadCan is loadPermissions without the admin flag.
@@ -60,6 +72,13 @@ const PermissionsContext = createContext<Permissions>(none)
 // The answer is for showing actions only; every request is still authorized.
 export function useCan(): Can {
   return useContext(PermissionsContext).can
+}
+
+// useCanRequest returns whether the signed-in user may ask an approver for an
+// action. Offer it only where the request goes through /v0/apply, which holds
+// the change for approval.
+export function useCanRequest(): Can {
+  return useContext(PermissionsContext).canRequest
 }
 
 // useIsAdmin returns whether the signed-in user is a registry admin. Like

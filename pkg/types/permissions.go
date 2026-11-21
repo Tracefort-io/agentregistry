@@ -36,11 +36,21 @@ type Permissions struct {
 	// Kinds maps each Kind to the actions the caller may take on resources
 	// of that kind in the namespace.
 	Kinds map[string][]string
+	// Requestable maps each Kind to the actions the caller may not take
+	// directly but may ask an approver for: the PDP's denial is requestable,
+	// and the registry holds the change until it is approved.
+	Requestable map[string][]string
 }
 
 // Allows reports whether action is permitted on kind.
 func (p Permissions) Allows(kind, action string) bool {
 	return slices.Contains(p.Kinds[kind], action)
+}
+
+// Requests reports whether action on kind needs, and may be given, an
+// approval.
+func (p Permissions) Requests(kind, action string) bool {
+	return slices.Contains(p.Requestable[kind], action)
 }
 
 // PermissionsFunc resolves the caller's Permissions in a namespace ("" for

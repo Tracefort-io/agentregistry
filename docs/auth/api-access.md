@@ -55,8 +55,8 @@ curl -s -X POST "$REGISTRY/v0/apply" \
 # List what the client may read
 curl -s "$REGISTRY/v0/agents?namespace=default" -H "Authorization: Bearer $TOKEN" | jq '.items[].metadata.name'
 
-# What the client may do
-curl -s "$REGISTRY/v0/me?namespace=default" -H "Authorization: Bearer $TOKEN" | jq '{admin, permissions}'
+# What the client may do, and what it may ask an approver for
+curl -s "$REGISTRY/v0/me?namespace=default" -H "Authorization: Bearer $TOKEN" | jq '{admin, permissions, requestable}'
 ```
 
 `POST /v0/apply` returns HTTP `200` with a result per document: check each `status` (`created`, `configured`, `unchanged`, or `failed` with an `error` such as `forbidden: ...`). Fail the pipeline on any `failed`:
