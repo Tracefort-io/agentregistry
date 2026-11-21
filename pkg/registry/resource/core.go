@@ -124,14 +124,8 @@ func applyPipeline(
 		}
 	}
 
-	if err := v1alpha1.ValidateObject(obj); err != nil {
-		return types.AdmissionResult{}, &applyError{Stage: stageValidation, Err: err}
-	}
-	if err := v1alpha1.ResolveObjectRefs(ctx, obj, opts.Resolver); err != nil {
-		return types.AdmissionResult{}, &applyError{Stage: stageRefs, Err: err}
-	}
-	if err := v1alpha1.ValidateObjectRegistries(ctx, obj, opts.RegistryValidator); err != nil {
-		return types.AdmissionResult{}, &applyError{Stage: stageRegistries, Err: err}
+	if ae := checkObject(ctx, obj, opts.Resolver, opts.RegistryValidator); ae != nil {
+		return types.AdmissionResult{}, ae
 	}
 
 	if agent, ok := obj.(*v1alpha1.Agent); ok && agent.Spec.HasLegacyModelConfiguration() {
@@ -179,6 +173,23 @@ func applyPipeline(
 		}
 	}
 	return result, nil
+}
+
+// checkObject runs the checks every written object must pass: its own
+// validation, its references, and its packages' external registries. The
+// apply pipeline runs them after authorization; an approval runs them before
+// a refused write is held, so approvers only see documents that can apply.
+func checkObject(ctx context.Context, obj v1alpha1.Object, resolver v1alpha1.ResolverFunc, registries v1alpha1.RegistryValidatorFunc) *applyError {
+	if err := v1alpha1.ValidateObject(obj); err != nil {
+		return &applyError{Stage: stageValidation, Err: err}
+	}
+	if err := v1alpha1.ResolveObjectRefs(ctx, obj, resolver); err != nil {
+		return &applyError{Stage: stageRefs, Err: err}
+	}
+	if err := v1alpha1.ValidateObjectRegistries(ctx, obj, registries); err != nil {
+		return &applyError{Stage: stageRegistries, Err: err}
+	}
+	return nil
 }
 
 func compensateAdmissionError(

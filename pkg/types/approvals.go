@@ -10,6 +10,9 @@ import (
 // approved, into an approval request. The registry applies the change
 // itself once the request is approved.
 type ApprovalStager interface {
+	// Holds reports whether Stage would hold a write of kind refused with
+	// denial, so the caller can check the write before it is held.
+	Holds(ctx context.Context, kind string, denial error) bool
 	// Stage returns the request's ID and staged=true when denial is a
 	// denial that may be approved; staged=false leaves the refusal as is.
 	Stage(ctx context.Context, in ApprovalStageInput) (requestID string, staged bool, err error)

@@ -26,6 +26,10 @@ var errNeedsApproval = errors.New("approval required")
 // stager holds denials that are errNeedsApproval.
 type stager struct{ inputs []types.ApprovalStageInput }
 
+func (s *stager) Holds(_ context.Context, _ string, denial error) bool {
+	return errors.Is(denial, errNeedsApproval)
+}
+
 func (s *stager) Stage(_ context.Context, in types.ApprovalStageInput) (string, bool, error) {
 	if !errors.Is(in.Denial, errNeedsApproval) {
 		return "", false, nil

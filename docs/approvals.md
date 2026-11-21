@@ -11,8 +11,8 @@ The registry decides nothing about approvals itself. Every control is a Rego rul
 
 ## How it works
 
-1. **Apply.** A user applies a change with `POST /v0/apply` (the UI does this too). For a change that needs approval, the PDP answers with a requestable denial: `decision: false`, plus `context.access_request` and a signed `binding_token`.
-2. **Hold.** The registry submits an access request to the PDP for the user, with the registry's own credentials, and keeps the document. The apply returns `status: pending-approval` with `approvalRequest: arq_…`. Nothing is written.
+1. **Apply.** A user applies a change with `POST /v0/apply` (the UI does this too). For a change that needs approval, the PDP answers with a requestable denial: `decision: false`, plus `context.access_request` and a signed `binding_token`. `GET /v0/me` lists such actions under `requestable`, so the UI offers them (adding to the catalog, deploying, and adding or deleting platform resources) marked as needing approval.
+2. **Hold.** The registry first runs the checks the change would face once approved: the document's validation, its references, and its packages' registries (for example that an OCI image exists and carries the `io.modelcontextprotocol.server.name` label). A document that fails them is refused at once, with that error, so approvers only see changes that can be applied. Otherwise the registry submits an access request to the PDP for the user, with the registry's own credentials, and keeps the document unchanged. The apply returns `status: pending-approval` with `approvalRequest: arq_…`. Nothing is written.
 3. **Review.** Approvers see the request in the UI's Approvals page (`GET /v0/approval-reviews`), with the document. They approve or deny it with an optional comment (`POST /v0/approval-reviews/{id}/decision`). The PDP checks each approver with its rules: an approver can't decide their own request.
 4. **Apply.** The registry notices the approval, by polling every `APPROVALS_POLL_INTERVAL` or from the service's callback. It then applies the held document as the requester, presenting the approval. The PDP verifies it, and the request becomes `applied`.
 

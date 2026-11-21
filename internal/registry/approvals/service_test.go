@@ -256,6 +256,27 @@ func (stubDecider) SearchResources(context.Context, authzen.ResourceSearchReques
 	return nil, nil
 }
 
+func TestHolds(t *testing.T) {
+	s, _ := newService(t, newFakeARS(t), &applier{})
+	tests := []struct {
+		name   string
+		ctx    context.Context
+		kind   string
+		denial error
+		want   bool
+	}{
+		{"a requestable denial of a signed-in user", carolCtx(), v1alpha1.KindMCPServer, approvalRequired(t), true},
+		{"an ordinary denial", carolCtx(), v1alpha1.KindMCPServer, errors.New("plain 403"), false},
+		{"a Secret, whose values would be stored", carolCtx(), v1alpha1.KindSecret, approvalRequired(t), false},
+		{"no signed-in user", context.Background(), v1alpha1.KindMCPServer, approvalRequired(t), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, s.Holds(tt.ctx, tt.kind, tt.denial))
+		})
+	}
+}
+
 func TestStage(t *testing.T) {
 	ars := newFakeARS(t)
 	s, store := newService(t, ars, &applier{})

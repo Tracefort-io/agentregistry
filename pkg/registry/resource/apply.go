@@ -2,8 +2,11 @@ package resource
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
+	"reflect"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -389,16 +392,30 @@ func failResult(res arv0.ApplyResult, ae *applyError) arv0.ApplyResult {
 }
 
 // stageForApproval hands a refused write to cfg.Approvals. ok reports that
-// the result is final: the change is pending approval, or staging it
-// failed. A dry run is never staged.
+// the result is final: the change is pending approval, its document failed
+// the checks it would fail once approved, or staging it failed. A dry run is
+// never staged.
 func stageForApproval(ctx context.Context, cfg ApplyConfig, res arv0.ApplyResult, ae *applyError, verb string, meta v1alpha1.ObjectMeta, obj v1alpha1.Object, dryRun bool) (arv0.ApplyResult, bool) {
-	if cfg.Approvals == nil || dryRun || ae.Stage != stageAuth {
+	if cfg.Approvals == nil || dryRun || ae.Stage != stageAuth || !cfg.Approvals.Holds(ctx, res.Kind, ae.Err) {
 		return res, false
 	}
 	if obj != nil {
 		// The pipeline has defaulted the tag on the object by now.
 		meta = *obj.GetMetadata()
 		res.Tag = meta.Tag
+		// Refuse a document that could not be applied once approved, instead
+		// of asking an approver to approve it. The checks run on a copy:
+		// validation may canonicalize fields, and the held document must stay
+		// the one whose hash the denial is bound to.
+		check, err := copyObject(obj)
+		if err != nil {
+			res.Status = arv0.ApplyStatusFailed
+			res.Error = "approval request: " + err.Error()
+			return res, true
+		}
+		if cae := checkObject(ctx, check, cfg.Resolver, cfg.RegistryValidator); cae != nil {
+			return failResult(res, cae), true
+		}
 	}
 	id, staged, err := cfg.Approvals.Stage(ctx, types.ApprovalStageInput{
 		Verb: verb, Kind: res.Kind, Namespace: meta.Namespace, Name: meta.Name, Tag: meta.Tag,
@@ -415,4 +432,34 @@ func stageForApproval(ctx context.Context, cfg ApplyConfig, res arv0.ApplyResult
 	res.Status = arv0.ApplyStatusPendingApproval
 	res.ApprovalRequest = id
 	return res, true
+}
+
+// copyObject returns a deep copy of obj: its spec through the JSON encoding,
+// and its metadata copied as is, since the wire form drops the default
+// namespace and the generation.
+func copyObject(obj v1alpha1.Object) (v1alpha1.Object, error) {
+	raw, err := json.Marshal(obj)
+	if err != nil {
+		return nil, fmt.Errorf("copy %s: %w", obj.GetKind(), err)
+	}
+	t := reflect.TypeOf(obj)
+	if t.Kind() != reflect.Pointer {
+		return nil, fmt.Errorf("copy %s: %s is not a pointer", obj.GetKind(), t)
+	}
+	cp, ok := reflect.New(t.Elem()).Interface().(v1alpha1.Object)
+	if !ok {
+		return nil, fmt.Errorf("copy %s: %s is not an object", obj.GetKind(), t)
+	}
+	if err := json.Unmarshal(raw, cp); err != nil {
+		return nil, fmt.Errorf("copy %s: %w", obj.GetKind(), err)
+	}
+	meta := *obj.GetMetadata()
+	meta.Labels = maps.Clone(meta.Labels)
+	meta.Annotations = maps.Clone(meta.Annotations)
+	if meta.DeletionTimestamp != nil {
+		ts := *meta.DeletionTimestamp
+		meta.DeletionTimestamp = &ts
+	}
+	cp.SetMetadata(meta)
+	return cp, nil
 }

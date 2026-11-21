@@ -83,18 +83,34 @@ func (s *Service) Bind(apply, del func(ctx context.Context, obj v1alpha1.Object)
 	s.apply, s.delete = apply, del
 }
 
-// Stage implements types.ApprovalStager: a write the PDP refused but marked
-// requestable is submitted as an access request and held.
-func (s *Service) Stage(ctx context.Context, in types.ApprovalStageInput) (string, bool, error) {
+// Holds implements types.ApprovalStager.
+func (s *Service) Holds(ctx context.Context, kind string, denial error) bool {
+	_, _, ok := holdable(ctx, kind, denial)
+	return ok
+}
+
+// holdable returns the requestable denial and the requester when a write of
+// kind refused with denial may be held: the PDP marked it requestable, it is
+// not a Secret (its values would be stored), and the caller is signed in.
+func holdable(ctx context.Context, kind string, denial error) (*authz.ApprovalRequired, auth.Principal, bool) {
 	var required *authz.ApprovalRequired
-	if !errors.As(in.Denial, &required) || in.Kind == v1alpha1.KindSecret {
-		return "", false, nil
+	if !errors.As(denial, &required) || kind == v1alpha1.KindSecret {
+		return nil, auth.Principal{}, false
 	}
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok || session == nil || !session.Principal().IsAuthenticated() {
+		return nil, auth.Principal{}, false
+	}
+	return required, session.Principal(), true
+}
+
+// Stage implements types.ApprovalStager: a write the PDP refused but marked
+// requestable is submitted as an access request and held.
+func (s *Service) Stage(ctx context.Context, in types.ApprovalStageInput) (string, bool, error) {
+	required, principal, ok := holdable(ctx, in.Kind, in.Denial)
+	if !ok {
 		return "", false, nil
 	}
-	principal := session.Principal()
 	requester, err := json.Marshal(storedPrincipalFrom(principal))
 	if err != nil {
 		return "", false, fmt.Errorf("encode requester: %w", err)
