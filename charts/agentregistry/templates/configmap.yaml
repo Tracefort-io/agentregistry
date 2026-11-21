@@ -36,6 +36,9 @@ data:
   {{- end }}
   {{- end }}
   {{- end }}
+  {{- with .Values.ociRegistries }}
+  AGENT_REGISTRY_OCI_REGISTRIES: {{ . | toJson | quote }}
+  {{- end }}
   {{- with .Values.policies }}
   {{- if .enabled }}
   AGENT_REGISTRY_POLICIES_ENABLED: "true"

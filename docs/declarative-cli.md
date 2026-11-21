@@ -183,6 +183,23 @@ spec:
         type: stdio
 ```
 
+### Registering MCP packages from a private OCI registry
+
+By default an OCI image must be public, on Docker Hub, GitHub Container Registry or Google Artifact Registry, because the registry reads it anonymously. To register images from a private registry such as Harbor, list it in `OCI_REGISTRIES` (chart value `ociRegistries`), a JSON array:
+
+```json
+[
+  {"host": "harbor.example.com", "credentialsSecret": "platform/harbor-pull"},
+  {"host": "registry.internal:5000", "insecure": true}
+]
+```
+
+- `host` is the registry as it appears in image references, with the port when there is one. Only images on that exact host use the entry.
+- `credentialsSecret` names a registry Secret (`<name>` or `<namespace>/<name>`) with `username` and `password` that may pull the image, for example a Harbor robot account. It's read on every check, so rotated credentials take effect at once. Without it, the registry is read anonymously.
+- `insecure: true` reads the registry over plain HTTP.
+
+Images on a listed registry skip the public allowlist but get the same checks as public ones: an explicit tag or digest, the image exists, and its `io.modelcontextprotocol.server.name` label matches `origin.oci.serverName`. Images on any other registry keep the public rules. `OCI_REGISTRIES_FILE` reads the same JSON from a file instead.
+
 ## Skills & Prompts
 
 ```bash

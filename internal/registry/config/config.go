@@ -257,6 +257,18 @@ type Config struct {
 	// PoliciesEvalTimeout bounds one Evaluate or Test run in the editor.
 	PoliciesEvalTimeout time.Duration `env:"POLICIES_EVAL_TIMEOUT" envDefault:"5s"`
 
+	// Private OCI registries
+	//
+	// OCIRegistries is a JSON array of private OCI registries whose images
+	// MCP servers may be registered with (see
+	// pkg/api/v1alpha1/registries.TrustedOCIRegistry): host, the registry
+	// Secret with the "username" and "password" to read images with, and
+	// whether it is plain HTTP. Images elsewhere keep the public-catalogue
+	// rules. OCIRegistriesFile reads the same JSON from a file and wins when
+	// both are set.
+	OCIRegistries     string `env:"OCI_REGISTRIES" envDefault:""`
+	OCIRegistriesFile string `env:"OCI_REGISTRIES_FILE" envDefault:""`
+
 	// Authorization (OpenID AuthZEN 1.0 PDP)
 	//
 	// AuthzenURL is the PDP base URL; endpoints are discovered from

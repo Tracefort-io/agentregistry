@@ -123,6 +123,17 @@ approvals:
       name: ""
       key: secret
 
+# @section Private OCI registries
+
+# -- Private OCI registries whose images MCP servers may be registered with.
+# Each entry: host (with the port when there is one, as in image
+# references), credentialsSecret (a registry Secret, "<name>" or
+# "<namespace>/<name>", with "username" and "password", for example a Harbor
+# robot account that may pull), and insecure (true for plain HTTP). Their
+# images skip the public allowlist but must exist and carry the
+# io.modelcontextprotocol.server.name label. See docs/declarative-cli.md.
+ociRegistries: []
+
 # @section Policies
 
 # -- Rego policies kept in a GitHub or GitLab repository: read live from the

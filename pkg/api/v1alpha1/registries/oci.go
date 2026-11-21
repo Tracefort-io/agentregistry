@@ -56,14 +56,8 @@ var allowedOCIRegistries = map[string]bool{
 //   - GitHub Container Registry (ghcr.io)
 //   - Google Artifact Registry (*.pkg.dev)
 func ValidateOCI(ctx context.Context, origin v1alpha1.MCPPackageOrigin, serverName string) error {
-	if origin.OCI == nil {
-		return fmt.Errorf("OCI validator called without origin.OCI set")
-	}
-	if origin.Identifier == "" {
-		return ErrMissingIdentifierForOCI
-	}
-	if !ociIdentifierHasTagOrDigest(origin.Identifier) {
-		return fmt.Errorf("OCI identifier %q must include an explicit tag (e.g. ':1.0.0') or digest (e.g. '@sha256:...') — bare references would silently resolve ':latest'", origin.Identifier)
+	if err := checkOCIIdentifier(origin); err != nil {
+		return err
 	}
 
 	ref, err := name.ParseReference(origin.Identifier)
@@ -87,25 +81,48 @@ func ValidateOCI(ctx context.Context, origin v1alpha1.MCPPackageOrigin, serverNa
 		return fmt.Errorf("%w: %s", ErrUnsupportedRegistry, registry)
 	}
 
+	return checkOCIImage(ctx, ref, origin.Identifier, serverName, authn.Anonymous,
+		fmt.Sprintf("OCI image '%s' is private or requires authentication. Only public images are supported", origin.Identifier))
+}
+
+// checkOCIIdentifier rejects an OCI origin without an identifier, or whose
+// identifier has neither a tag nor a digest.
+func checkOCIIdentifier(origin v1alpha1.MCPPackageOrigin) error {
+	if origin.OCI == nil {
+		return fmt.Errorf("OCI validator called without origin.OCI set")
+	}
+	if origin.Identifier == "" {
+		return ErrMissingIdentifierForOCI
+	}
+	if !ociIdentifierHasTagOrDigest(origin.Identifier) {
+		return fmt.Errorf("OCI identifier %q must include an explicit tag (e.g. ':1.0.0') or digest (e.g. '@sha256:...') — bare references would silently resolve ':latest'", origin.Identifier)
+	}
+	return nil
+}
+
+// checkOCIImage fetches the image at ref with auth and checks that its
+// io.modelcontextprotocol.server.name label is serverName. unauthorized is
+// the error message for a 401 or 403 from the registry.
+func checkOCIImage(ctx context.Context, ref name.Reference, identifier, serverName string, auth authn.Authenticator, unauthorized string) error {
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	img, err := remote.Image(ref, remote.WithAuth(authn.Anonymous), remote.WithContext(timeoutCtx))
+	img, err := remote.Image(ref, remote.WithAuth(auth), remote.WithContext(timeoutCtx))
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("OCI image validation timed out after 30 seconds for '%s'. The registry may be slow or unreachable", origin.Identifier)
+			return fmt.Errorf("OCI image validation timed out after 30 seconds for '%s'. The registry may be slow or unreachable", identifier)
 		}
 
 		var transportErr *transport.Error
 		if errors.As(err, &transportErr) {
 			switch transportErr.StatusCode {
 			case http.StatusTooManyRequests:
-				slog.Info("skipping OCI validation due to rate limiting", "identifier", origin.Identifier)
+				slog.Info("skipping OCI validation due to rate limiting", "identifier", identifier)
 				return nil
 			case http.StatusNotFound:
-				return fmt.Errorf("OCI image '%s' does not exist in the registry", origin.Identifier)
+				return fmt.Errorf("OCI image '%s' does not exist in the registry", identifier)
 			case http.StatusUnauthorized, http.StatusForbidden:
-				return fmt.Errorf("OCI image '%s' is private or requires authentication. Only public images are supported", origin.Identifier)
+				return errors.New(unauthorized)
 			}
 		}
 		return fmt.Errorf("failed to fetch OCI image: %w", err)
@@ -117,12 +134,12 @@ func ValidateOCI(ctx context.Context, origin v1alpha1.MCPPackageOrigin, serverNa
 	}
 
 	if configFile.Config.Labels == nil {
-		return fmt.Errorf("OCI image '%s' is missing required annotation. Add this to your Dockerfile: LABEL io.modelcontextprotocol.server.name=\"%s\"", origin.Identifier, serverName)
+		return fmt.Errorf("OCI image '%s' is missing required annotation. Add this to your Dockerfile: LABEL io.modelcontextprotocol.server.name=\"%s\"", identifier, serverName)
 	}
 
 	mcpName, exists := configFile.Config.Labels["io.modelcontextprotocol.server.name"]
 	if !exists {
-		return fmt.Errorf("OCI image '%s' is missing required annotation. Add this to your Dockerfile: LABEL io.modelcontextprotocol.server.name=\"%s\"", origin.Identifier, serverName)
+		return fmt.Errorf("OCI image '%s' is missing required annotation. Add this to your Dockerfile: LABEL io.modelcontextprotocol.server.name=\"%s\"", identifier, serverName)
 	}
 
 	if mcpName != serverName {

@@ -124,5 +124,5 @@ Open:
 
 Registration gaps:
 
-- **Private registries:** the package check accepts only public registries (OCI: Docker Hub, GHCR and Google Artifact Registry; npmjs.org; pypi.org), fetches anonymously, and requires the public ownership label. An image in a private registry can't be registered; the only way around it is a custom `RegistryValidator` in code (`pkg/types/types.go`).
+- **Private npm and PyPI registries:** private OCI registries can be listed in `OCI_REGISTRIES` ([docs/declarative-cli.md](docs/declarative-cli.md)), but npm and PyPI packages are still checked only against npmjs.org and pypi.org, anonymously.
 - **UI form:** it can't register a remote (URL-only) server, environment variables, or a package's endpoint path. The Add Agent dialog is a placeholder.

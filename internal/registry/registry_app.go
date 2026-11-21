@@ -231,6 +231,15 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 	perKindHooks := crudPerKindHooks(options)
 	perKindHooks.Audit = auditWiring.recorder
 	wireSecretService(&perKindHooks, stores, secretStore)
+	if options.RegistryValidator == nil {
+		var resolver secret.Resolver
+		if secretStore != nil {
+			resolver = secretResolver
+		}
+		if options.RegistryValidator, err = buildRegistryValidator(cfg, resolver); err != nil {
+			return err
+		}
+	}
 	routeOpts := buildRouteOptions(options, stores, deploymentAdapters, perKindHooks)
 	routeOpts.AuditLister = auditWiring.lister
 	routeOpts.IsRegistryAdmin = authz.IsRegistryAdmin
