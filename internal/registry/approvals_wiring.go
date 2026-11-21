@@ -38,7 +38,12 @@ func buildApprovals(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool,
 	if err != nil {
 		return nil, nil, fmt.Errorf("approvals credentials: %w", err)
 	}
-	ars, err := approvals.NewARSClient(pdp, cfg.AuthzenURL, tokens, &http.Client{Timeout: cfg.AuthzenTimeout * 4})
+	// The access request service is hosted by the PDP, behind the same certificate.
+	arsHTTP, err := httpClientWithCA(cfg.AuthzenTimeout*4, cfg.AuthzenCACertFile, "AUTHZEN_CA_CERT_FILE")
+	if err != nil {
+		return nil, nil, err
+	}
+	ars, err := approvals.NewARSClient(pdp, cfg.AuthzenURL, tokens, arsHTTP)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -132,7 +132,7 @@ The registry checks `X-Hub-Signature-256` (GitHub) or `X-Gitlab-Token` (GitLab).
 | `POLICIES_CREDENTIALS_SECRET` | `credentialsSecret` | The registry Secret with the token, `<name>` or `<namespace>/<name>` |
 | `POLICIES_WEBHOOK_SECRET_FILE` | `webhookSecretRef` | A file (a Kubernetes Secret in the chart) with the webhook secret, at least 32 bytes |
 | `POLICIES_COMMITTER_NAME`, `POLICIES_COMMITTER_EMAIL` | `committer` | The committer of the registry's commits |
-| `POLICIES_OPA_URL`, `POLICIES_OPA_TOKEN_FILE` | `opa` | Optional: the OPA to compare with, for the OPA badge |
+| `POLICIES_OPA_URL`, `POLICIES_OPA_TOKEN_FILE`, `POLICIES_OPA_CA_CERT_FILE` | `opa` | Optional: the OPA to compare with, for the OPA badge; the CA file (chart: `opa.caConfigMapRef`) is for an OPA whose certificate comes from a private CA |
 | `POLICIES_EVAL_TIMEOUT` | `evalTimeout` | Time limit for one Evaluate or Test run (default `5s`) |
 
 The token is read from the Secret on every call, so a rotated token takes effect at once.

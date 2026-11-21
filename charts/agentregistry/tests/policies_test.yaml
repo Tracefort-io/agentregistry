@@ -63,6 +63,48 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts
           content: {name: policies-webhook, mountPath: /var/run/agentregistry/policies, readOnly: true}
 
+  - it: trusts the OPA's CA from a ConfigMap
+    templates: [configmap.yaml, deployment.yaml]
+    set:
+      auth: {mode: required, issuers: [{issuer: http://idp, audiences: [agentregistry]}], authzen: {url: https://pdp:8181}}
+      policies:
+        enabled: true
+        provider: github
+        repoUrl: https://github.com/acme/policies
+        credentialsSecret: policies-git
+        webhookSecretRef: {name: policies-webhook}
+        opa: {url: https://opa:8181, caConfigMapRef: {name: internal-ca}}
+    asserts:
+      - equal: {path: data.AGENT_REGISTRY_POLICIES_OPA_CA_CERT_FILE, value: /var/run/agentregistry/policies-opa-ca/ca.crt}
+        template: configmap.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: policies-opa-ca
+            configMap: {name: internal-ca, items: [{key: ca.crt, path: ca.crt}]}
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: policies-opa-ca, mountPath: /var/run/agentregistry/policies-opa-ca, readOnly: true}
+        template: deployment.yaml
+
+  - it: mounts no OPA CA by default
+    template: deployment.yaml
+    set:
+      auth: {mode: required, issuers: [{issuer: http://idp, audiences: [agentregistry]}], authzen: {url: https://pdp:8181}}
+      policies:
+        enabled: true
+        provider: github
+        repoUrl: https://github.com/acme/policies
+        credentialsSecret: policies-git
+        webhookSecretRef: {name: policies-webhook}
+        opa: {url: https://opa:8181}
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content: {name: policies-opa-ca}
+          any: true
+
   - it: needs auth required
     template: validate.yaml
     set:

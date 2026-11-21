@@ -134,7 +134,8 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 | audit.otlp | object | `{"enabled":false,"endpoint":""}` | Also export each event as an OpenTelemetry log record over OTLP/HTTP. |
 | audit.otlp.endpoint | string | `""` | Collector base URL, for example http://otel-collector:4318. Sets OTEL_EXPORTER_OTLP_ENDPOINT; add headers or TLS settings through extraEnvVars (OTEL_EXPORTER_OTLP_HEADERS, ...). |
 | audit.retention | string | `"2160h"` | How long events are kept; 0s keeps them forever. |
-| auth | object | `{"authzen":{"cacheTTL":"5s","clientId":"","clientSecretRef":{"key":"client-secret","name":""},"listMax":1000,"scopes":[],"staticTokenRef":{"key":"token","name":""},"timeout":"1500ms","tokenUrl":"","url":""},"clockSkew":"30s","issuers":[],"jwksRefresh":"5m","mcp":{"resource":"","scopes":[]},"mode":"disabled","openPaths":["/health","/ping","/version"],"ui":{"clientId":"","issuer":"","scopes":"openid profile email"}}` | Authentication (JWT) and authorization (an OpenID AuthZEN 1.0 PDP). Settings are rendered into the ConfigMap; credentials come only from existing Secrets. See docs/auth/authzen-contract.md. |
+| auth | object | `{"authzen":{"caConfigMapRef":{"key":"ca.crt","name":""},"cacheTTL":"5s","clientId":"","clientSecretRef":{"key":"client-secret","name":""},"listMax":1000,"scopes":[],"staticTokenRef":{"key":"token","name":""},"timeout":"1500ms","tokenUrl":"","url":""},"clockSkew":"30s","issuers":[],"jwksRefresh":"5m","mcp":{"resource":"","scopes":[]},"mode":"disabled","openPaths":["/health","/ping","/version"],"ui":{"clientId":"","issuer":"","scopes":"openid profile email"}}` | Authentication (JWT) and authorization (an OpenID AuthZEN 1.0 PDP). Settings are rendered into the ConfigMap; credentials come only from existing Secrets. See docs/auth/authzen-contract.md. |
+| auth.authzen.caConfigMapRef | object | `{"key":"ca.crt","name":""}` | Optional: an existing ConfigMap with the CA certificate that signed the PDP's TLS certificate, when it isn't publicly trusted. Also used for the access request service, which the PDP hosts. |
 | auth.authzen.cacheTTL | string | `"5s"` | How long permit decisions are cached. 0 disables caching. |
 | auth.authzen.listMax | int | `1000` | Maximum rows a list request authorizes. |
 | auth.authzen.staticTokenRef | object | `{"key":"token","name":""}` | Or a static bearer token for PDPs without OAuth, from a Secret. |
@@ -219,6 +220,7 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 | nodeAffinityPreset.type | string | `""` | Node affinity preset type (soft or hard) |
 | nodeAffinityPreset.values | list | `[]` | Node label values for affinity |
 | nodeSelector | object | `{}` | Node labels for pod assignment |
+| ociRegistries | list | `[]` | Private OCI registries whose images MCP servers may be registered with. Each entry: host (with the port when there is one, as in image references), credentialsSecret (a registry Secret, "<name>" or "<namespace>/<name>", with "username" and "password", for example a Harbor robot account that may pull), and insecure (true for plain HTTP). Their images skip the public allowlist but must exist and carry the io.modelcontextprotocol.server.name label. See docs/declarative-cli.md. |
 | podAffinityPreset | string | `""` | Pod affinity preset (soft or hard) |
 | podAnnotations | object | `{}` | Extra annotations for Agent Registry pods |
 | podAntiAffinityPreset | string | `"soft"` | Pod anti-affinity preset (soft or hard) |
@@ -226,13 +228,14 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 | podSecurityContext.enabled | bool | `true` | Enable pod-level security context |
 | podSecurityContext.fsGroup | int | `1001` | Group ID for the pod filesystem |
 | podSecurityContext.fsGroupChangePolicy | string | `"Always"` | Policy for changing fsGroup ownership |
-| policies | object | `{"apiUrl":"","branch":"main","committer":{"email":"agentregistry@localhost","name":"agentregistry"},"credentialsSecret":"","enabled":false,"evalTimeout":"5s","opa":{"tokenSecretRef":{"key":"token","name":""},"url":""},"provider":"","repoUrl":"","webhookSecretRef":{"key":"secret","name":""}}` | Rego policies kept in a GitHub or GitLab repository: read live from the branch OPAL tracks, edited in the UI, and published as pull (merge) requests that an approver merges. Each merge is tagged <policy>/v<N>. Needs auth.mode=required. See docs/policies.md. |
+| policies | object | `{"apiUrl":"","branch":"main","committer":{"email":"agentregistry@localhost","name":"agentregistry"},"credentialsSecret":"","enabled":false,"evalTimeout":"5s","opa":{"caConfigMapRef":{"key":"ca.crt","name":""},"tokenSecretRef":{"key":"token","name":""},"url":""},"provider":"","repoUrl":"","webhookSecretRef":{"key":"secret","name":""}}` | Rego policies kept in a GitHub or GitLab repository: read live from the branch OPAL tracks, edited in the UI, and published as pull (merge) requests that an approver merges. Each merge is tagged <policy>/v<N>. Needs auth.mode=required. See docs/policies.md. |
 | policies.apiUrl | string | `""` | Overrides the host's API URL derived from repoUrl (GitHub Enterprise, self-managed GitLab behind another host). |
 | policies.branch | string | `"main"` | The branch OPAL tracks; pull requests target it. |
 | policies.committer | object | `{"email":"agentregistry@localhost","name":"agentregistry"}` | Who commits the registry's pushes; the signed-in user is the author. |
 | policies.credentialsSecret | string | `""` | The registry Secret ("<name>" or "<namespace>/<name>", created with arctl or the API, not a Kubernetes Secret) holding the git host token under "password". It needs to push branches and tags and open pull requests. |
 | policies.evalTimeout | string | `"5s"` | Time limit for one Evaluate or Test run in the editor. |
-| policies.opa | object | `{"tokenSecretRef":{"key":"token","name":""},"url":""}` | Optional: the OPA whose loaded modules show which version is live (GET <url>/v1/policies), and an existing Secret with its bearer token. |
+| policies.opa | object | `{"caConfigMapRef":{"key":"ca.crt","name":""},"tokenSecretRef":{"key":"token","name":""},"url":""}` | Optional: the OPA whose loaded modules show which version is live (GET <url>/v1/policies), and an existing Secret with its bearer token. |
+| policies.opa.caConfigMapRef | object | `{"key":"ca.crt","name":""}` | Optional: an existing ConfigMap with the CA certificate that signed that OPA's TLS certificate, when it isn't publicly trusted. |
 | policies.provider | string | `""` | "github" or "gitlab". |
 | policies.repoUrl | string | `""` | The policy repository's https URL. |
 | policies.webhookSecretRef | object | `{"key":"secret","name":""}` | Existing Kubernetes Secret with the webhook secret (at least 32 bytes) the git host signs deliveries to POST /policies/webhook with. |

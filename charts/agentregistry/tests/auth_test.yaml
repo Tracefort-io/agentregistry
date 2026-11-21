@@ -207,3 +207,37 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  # ── PDP CA ──────────────────────────────────────────────────────────────────
+
+  - it: trusts the PDP's CA from a ConfigMap
+    templates: [configmap.yaml, deployment.yaml]
+    set:
+      auth:
+        mode: required
+        issuers: [{issuer: http://idp, audiences: [agentregistry]}]
+        authzen: {url: https://pdp:8181, caConfigMapRef: {name: internal-ca, key: root.pem}}
+    asserts:
+      - equal: {path: data.AGENT_REGISTRY_AUTHZEN_CA_CERT_FILE, value: /var/run/agentregistry/authzen-ca/ca.crt}
+        template: configmap.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: authzen-ca
+            configMap: {name: internal-ca, items: [{key: root.pem, path: ca.crt}]}
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: authzen-ca, mountPath: /var/run/agentregistry/authzen-ca, readOnly: true}
+        template: deployment.yaml
+
+  - it: mounts no PDP CA by default
+    templates: [configmap.yaml, deployment.yaml]
+    asserts:
+      - notExists: {path: data.AGENT_REGISTRY_AUTHZEN_CA_CERT_FILE}
+        template: configmap.yaml
+      - notContains:
+          path: spec.template.spec.volumes
+          content: {name: authzen-ca}
+          any: true
+        template: deployment.yaml

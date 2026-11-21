@@ -254,6 +254,9 @@ type Config struct {
 	// version of each policy is live (GET <url>/v1/policies).
 	PoliciesOPAURL       string `env:"POLICIES_OPA_URL" envDefault:""`
 	PoliciesOPATokenFile string `env:"POLICIES_OPA_TOKEN_FILE" envDefault:""`
+	// PoliciesOPACACertFile is a PEM file of the CA certificates that sign
+	// that OPA's TLS certificate; empty trusts the system roots.
+	PoliciesOPACACertFile string `env:"POLICIES_OPA_CA_CERT_FILE" envDefault:""`
 	// PoliciesEvalTimeout bounds one Evaluate or Test run in the editor.
 	PoliciesEvalTimeout time.Duration `env:"POLICIES_EVAL_TIMEOUT" envDefault:"5s"`
 
@@ -274,6 +277,10 @@ type Config struct {
 	// AuthzenURL is the PDP base URL; endpoints are discovered from
 	// <AuthzenURL>/.well-known/authzen-configuration.
 	AuthzenURL string `env:"AUTHZEN_URL" envDefault:""`
+	// AuthzenCACertFile is a PEM file of the CA certificates that sign the
+	// PDP's TLS certificate, for the AuthZEN and access request clients;
+	// empty trusts the system roots.
+	AuthzenCACertFile string `env:"AUTHZEN_CA_CERT_FILE" envDefault:""`
 	// AuthzenTimeout bounds every PDP call; a timeout is a denial.
 	AuthzenTimeout time.Duration `env:"AUTHZEN_TIMEOUT" envDefault:"1500ms"`
 	// AuthzenCacheTTL caches permit decisions per (subject, action, resource).

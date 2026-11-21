@@ -171,6 +171,11 @@ policies:
     tokenSecretRef:
       name: ""
       key: token
+    # -- Optional: an existing ConfigMap with the CA certificate that signed
+    # that OPA's TLS certificate, when it isn't publicly trusted.
+    caConfigMapRef:
+      name: ""
+      key: ca.crt
   # -- Time limit for one Evaluate or Test run in the editor.
   evalTimeout: 5s
 
@@ -246,6 +251,12 @@ auth:
     staticTokenRef:
       name: ""
       key: token
+    # -- Optional: an existing ConfigMap with the CA certificate that signed
+    # the PDP's TLS certificate, when it isn't publicly trusted. Also used for
+    # the access request service, which the PDP hosts.
+    caConfigMapRef:
+      name: ""
+      key: ca.crt
 
 # @section Secret store
 

@@ -72,11 +72,17 @@ func buildAuth(ctx context.Context, cfg *config.Config, options types.AppOptions
 	if err != nil {
 		return authWiring{}, err
 	}
+	// Each call has its own deadline (Timeout); the client adds none.
+	pdpHTTP, err := httpClientWithCA(0, cfg.AuthzenCACertFile, "AUTHZEN_CA_CERT_FILE")
+	if err != nil {
+		return authWiring{}, err
+	}
 	w.pdp, err = authzen.New(authzen.Config{
 		BaseURL:     cfg.AuthzenURL,
 		Timeout:     cfg.AuthzenTimeout,
 		CacheTTL:    cfg.AuthzenCacheTTL,
 		TokenSource: tokens,
+		HTTPClient:  pdpHTTP,
 	})
 	if err != nil {
 		return authWiring{}, fmt.Errorf("create authzen client: %w", err)

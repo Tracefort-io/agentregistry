@@ -139,3 +139,7 @@ Every denial error matches `errors.Is(err, auth.ErrForbidden)`; an unauthenticat
 Only permits are cached across requests, per (subject, action, resource), for `AUTHZEN_CACHE_TTL` (default 5s). Denials and errors are never cached.
 
 Within one incoming request, an identical question is asked once: a decision, permit or denial, is reused for the rest of that request only. Failed evaluations are not reused.
+
+## Connection
+
+The registry calls the PDP at `AUTHZEN_URL`, which should be `https`: the AuthZEN Authorization API requires TLS between PEP and PDP. When the PDP's certificate comes from a private CA, `AUTHZEN_CA_CERT_FILE` names a PEM file of the CA certificates to trust instead of the system roots (chart: `auth.authzen.caConfigMapRef`). The access request service, which the PDP hosts, is reached through the same setting.

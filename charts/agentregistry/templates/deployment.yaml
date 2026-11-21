@@ -287,6 +287,16 @@ spec:
               mountPath: /var/run/agentregistry/policies-opa
               readOnly: true
             {{- end }}
+            {{- if and .Values.policies.opa.url .Values.policies.opa.caConfigMapRef.name }}
+            - name: policies-opa-ca
+              mountPath: /var/run/agentregistry/policies-opa-ca
+              readOnly: true
+            {{- end }}
+            {{- end }}
+            {{- if .Values.auth.authzen.caConfigMapRef.name }}
+            - name: authzen-ca
+              mountPath: /var/run/agentregistry/authzen-ca
+              readOnly: true
             {{- end }}
             {{- if eq .Values.secretStore.type "OpenBao" }}
             {{- with .Values.secretStore.openbao }}
@@ -337,6 +347,22 @@ spec:
               - key: {{ .Values.policies.opa.tokenSecretRef.key }}
                 path: token
         {{- end }}
+        {{- if and .Values.policies.opa.url .Values.policies.opa.caConfigMapRef.name }}
+        - name: policies-opa-ca
+          configMap:
+            name: {{ .Values.policies.opa.caConfigMapRef.name }}
+            items:
+              - key: {{ .Values.policies.opa.caConfigMapRef.key }}
+                path: ca.crt
+        {{- end }}
+        {{- end }}
+        {{- if .Values.auth.authzen.caConfigMapRef.name }}
+        - name: authzen-ca
+          configMap:
+            name: {{ .Values.auth.authzen.caConfigMapRef.name }}
+            items:
+              - key: {{ .Values.auth.authzen.caConfigMapRef.key }}
+                path: ca.crt
         {{- end }}
         {{- if eq .Values.secretStore.type "OpenBao" }}
         {{- with .Values.secretStore.openbao }}

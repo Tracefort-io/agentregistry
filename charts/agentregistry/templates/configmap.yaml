@@ -59,6 +59,9 @@ data:
   {{- if and .opa.url .opa.tokenSecretRef.name }}
   AGENT_REGISTRY_POLICIES_OPA_TOKEN_FILE: /var/run/agentregistry/policies-opa/token
   {{- end }}
+  {{- if and .opa.url .opa.caConfigMapRef.name }}
+  AGENT_REGISTRY_POLICIES_OPA_CA_CERT_FILE: /var/run/agentregistry/policies-opa-ca/ca.crt
+  {{- end }}
   {{- end }}
   {{- end }}
   {{- with .Values.audit }}
@@ -84,6 +87,9 @@ data:
   {{- end }}
   {{- with .Values.auth }}
   AGENT_REGISTRY_AUTH_MODE: {{ .mode | quote }}
+  {{- if .authzen.caConfigMapRef.name }}
+  AGENT_REGISTRY_AUTHZEN_CA_CERT_FILE: /var/run/agentregistry/authzen-ca/ca.crt
+  {{- end }}
   {{- if eq .mode "required" }}
   AGENT_REGISTRY_AUTH_ISSUERS: {{ .issuers | toJson | quote }}
   AGENT_REGISTRY_AUTH_CLOCK_SKEW: {{ .clockSkew | quote }}

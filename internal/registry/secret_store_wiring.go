@@ -2,13 +2,9 @@ package registry
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"os"
 	"time"
 
 	"github.com/agentregistry-dev/agentregistry/internal/registry/config"
@@ -27,20 +23,9 @@ const (
 // failing startup, that it can log in and reach its mount: OpenBao may come
 // up after the registry, and Secret reads and writes report the cause.
 func buildOpenBaoStore(ctx context.Context, cfg *config.Config) (*openbao.Store, error) {
-	httpClient := &http.Client{Timeout: cfg.OpenBaoTimeout}
-	if cfg.OpenBaoCACertFile != "" {
-		pem, err := os.ReadFile(cfg.OpenBaoCACertFile)
-		if err != nil {
-			return nil, fmt.Errorf("read OPENBAO_CA_CERT_FILE: %w", err)
-		}
-		roots := x509.NewCertPool()
-		if !roots.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("OPENBAO_CA_CERT_FILE %s holds no PEM certificates", cfg.OpenBaoCACertFile)
-		}
-		httpClient.Transport = &http.Transport{
-			Proxy:           http.ProxyFromEnvironment,
-			TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
-		}
+	httpClient, err := httpClientWithCA(cfg.OpenBaoTimeout, cfg.OpenBaoCACertFile, "OPENBAO_CA_CERT_FILE")
+	if err != nil {
+		return nil, err
 	}
 
 	var auth openbao.Auth

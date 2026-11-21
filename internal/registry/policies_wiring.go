@@ -80,7 +80,11 @@ func buildPolicies(cfg *config.Config, credentials types.GitCredentialFunc, auth
 		if err != nil {
 			return nil, nil, fmt.Errorf("read POLICIES_OPA_TOKEN_FILE: %w", err)
 		}
-		opa = &policies.OPAClient{URL: cfg.PoliciesOPAURL, Token: token, HTTP: httpClient}
+		opaHTTP, err := httpClientWithCA(30*time.Second, cfg.PoliciesOPACACertFile, "POLICIES_OPA_CA_CERT_FILE")
+		if err != nil {
+			return nil, nil, err
+		}
+		opa = &policies.OPAClient{URL: cfg.PoliciesOPAURL, Token: token, HTTP: opaHTTP}
 	}
 	svc, err := policies.New(policies.Config{
 		Open: open, Branch: cfg.PoliciesBranch, Authorizer: authorizer, OPA: opa, Audit: recorder,
