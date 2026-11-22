@@ -131,9 +131,9 @@ func TestTagging_ApplyAndIdempotency(t *testing.T) {
 // TestTagging_DeleteSemantics covers the delete-then-reapply flow against
 // the tag contract:
 //   - apply an explicit stable tag plus default latest
-//   - delete without a tag -> removes only latest; stable remains
-//   - delete --all-tags -> removes every tag; name is freed
-//   - re-apply -> latest is created again
+//   - delete without a tag -> deletes only latest; stable remains
+//   - delete --all-tags -> deletes every tag; get finds nothing
+//   - versions are immutable: re-applying a deleted tag is refused, a new tag works
 func TestTagging_DeleteSemantics(t *testing.T) {
 	regURL := RegistryURL(t)
 	tmpDir := t.TempDir()
@@ -182,12 +182,31 @@ func TestTagging_DeleteSemantics(t *testing.T) {
 			getResult.Stdout, getResult.Stderr)
 	}
 
-	// Step 4: re-apply -> latest is created again.
-	applyAgentWithDesc(t, regURL, tmpDir, name, "after-reset")
-	if got := agentTag(t, regURL, tmpDir, name); got != "latest" {
-		t.Fatalf("after reset re-apply: expected metadata.tag=latest, got %q", got)
+	// Step 4: deleted versions are kept and immutable, so re-applying the
+	// deleted latest tag is refused...
+	path := writeDeclarativeYAML(t, tmpDir, fmt.Sprintf("agent-%d.yaml", time.Now().UnixNano()), fmt.Sprintf(`apiVersion: ar.dev/v1alpha1
+kind: Agent
+metadata:
+  name: %s
+spec:
+  source:
+    image: ghcr.io/e2e-test/versioning-agent:latest
+  description: after-reset
+  language: python
+  framework: adk
+`, name))
+	reapply := RunArctl(t, tmpDir, "apply", "-f", path, "--registry-url", regURL)
+	if combined := reapply.Stdout + reapply.Stderr; !strings.Contains(combined, "was deleted") {
+		t.Fatalf("re-applying a deleted tag: expected it refused as deleted, got:\nstdout: %s\nstderr: %s",
+			reapply.Stdout, reapply.Stderr)
+	}
+
+	// ...while a new tag is applied.
+	applyAgentWithTagAndDesc(t, regURL, tmpDir, name, "v2", "after-reset")
+	if got := agentTag(t, regURL, tmpDir, name, "--tag", "v2"); got != "v2" {
+		t.Fatalf("after new-tag apply: expected metadata.tag=v2, got %q", got)
 	}
 	if got := agentTagCount(t, regURL, tmpDir, name); got != 1 {
-		t.Fatalf("after reset re-apply: expected 1 tag row, got %d", got)
+		t.Fatalf("after new-tag apply: expected 1 live tag, got %d", got)
 	}
 }

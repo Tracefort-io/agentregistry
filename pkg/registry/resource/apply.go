@@ -373,7 +373,10 @@ func failResult(res arv0.ApplyResult, ae *applyError) arv0.ApplyResult {
 	case stageAuth:
 		res.Error = "forbidden: " + ae.Err.Error()
 	case stageUpsert:
-		if ae.Terminating {
+		if ae.TagDeleted {
+			res.Error = fmt.Sprintf("%s/%s@%s was deleted; versions are immutable, apply it under a new tag",
+				res.Namespace, res.Name, res.Tag)
+		} else if ae.Terminating {
 			res.Error = fmt.Sprintf("object %s/%s is terminating; delete + re-apply once GC purges the row",
 				res.Namespace, res.Name)
 		} else {

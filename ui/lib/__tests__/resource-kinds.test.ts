@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { deleteDocument, failedResults, RESOURCE_KINDS } from "../resource-kinds"
+import { deleteAllTagsDocument, deleteDocument, failedResults, RESOURCE_KINDS } from "../resource-kinds"
 
 describe("summaries", () => {
   it.each([
@@ -51,5 +51,17 @@ describe("failedResults", () => {
       { name: "c", status: "deleted" },
     ])).toEqual([{ name: "b", status: "failed", error: "forbidden: not permitted" }])
     expect(failedResults(undefined)).toEqual([])
+  })
+})
+
+describe("deleteAllTagsDocument", () => {
+  it("names no tag, so every tag is deleted", () => {
+    expect(JSON.parse(deleteAllTagsDocument("Skill", "team", "summarize"))).toEqual({
+      apiVersion: "ar.dev/v1alpha1", kind: "Skill", metadata: { namespace: "team", name: "summarize" },
+    })
+  })
+
+  it("defaults the namespace", () => {
+    expect(JSON.parse(deleteAllTagsDocument("Agent", undefined, "a")).metadata).toEqual({ namespace: "default", name: "a" })
   })
 })

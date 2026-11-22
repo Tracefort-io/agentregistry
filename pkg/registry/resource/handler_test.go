@@ -175,8 +175,7 @@ spec:
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &gotAgent))
 	require.Equal(t, "Alice v2", gotAgent.Spec.Title)
 
-	// DELETE — tagged-artifact rows have no finalizers, so DELETE
-	// hard-deletes the targeted tag immediately.
+	// DELETE marks the version deleted; the row is kept with its history.
 	resp = api.Delete("/v0/agents/alice/latest")
 	require.Equal(t, http.StatusNoContent, resp.Code)
 
@@ -194,11 +193,12 @@ spec:
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &list))
 	require.Empty(t, list.Items)
 
-	// includeTerminating=true also empty since there's no terminating row.
+	// includeTerminating=true shows the deleted version, which is kept.
 	resp = api.Get("/v0/agents?includeTerminating=true")
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &list))
-	require.Empty(t, list.Items)
+	require.Len(t, list.Items, 1)
+	require.NotNil(t, list.Items[0].Metadata.DeletionTimestamp)
 }
 
 // TestResourceRegister_ListTagsReturnsTheTagsTheCallerMayGet pins per-tag authorization on the tags list:
@@ -734,13 +734,10 @@ spec:
 	require.Contains(t, out.Results[0].Error, "spec.mcpServers[1]")
 }
 
-// TestResourceRegister_DeleteHardDeletesFinalizerFree pins the K8s
-// fast-path: rows with no finalizers hard-delete synchronously on
-// DELETE. Without it, "DELETE then apply same tag" hits
-// ErrTerminating until the (currently non-existent) GC purges the row.
-// Reported by josh-pritchard on PR #455 ("Soft-delete blocks re-apply
-// for every v1alpha1 kind"); fixed at the Store layer.
-func TestResourceRegister_DeleteHardDeletesFinalizerFree(t *testing.T) {
+// TestResourceRegister_DeleteKeepsTheVersion pins delete as a status
+// change: DELETE keeps the version with its history and hides it from
+// reads, and its tag cannot be applied again (versions are immutable).
+func TestResourceRegister_DeleteKeepsTheVersion(t *testing.T) {
 	pool := v1alpha1store.NewTestPool(t)
 	store := v1alpha1store.NewStore(pool, v1alpha1store.TestSchema(), "agents")
 
@@ -760,27 +757,34 @@ spec:
 	require.Equal(t, arv0.ApplyStatusCreated, res.Status)
 	require.Equal(t, v1alpha1store.DefaultTag(), res.Tag)
 
-	// DELETE on a finalizer-free row hard-deletes immediately. DELETE
-	// stays per-kind for content-registry kinds (CLI uses it for
+	// DELETE keeps the version and marks it deleted. DELETE stays per-kind
+	// for content-registry kinds (CLI uses it for
 	// "arctl delete agent foo --tag latest").
 	resp := api.Delete("/v0/agents/soft/latest")
 	require.Equal(t, http.StatusNoContent, resp.Code)
 
-	// GET returns 404 — row is gone, not terminating.
+	// GET hides the deleted version; includeTerminating shows it.
 	resp = api.Get("/v0/agents/soft/latest")
 	require.Equal(t, http.StatusNotFound, resp.Code)
+	resp = api.Get("/v0/agents/soft/latest?includeTerminating=true")
+	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
 
-	// Re-apply with the same logical tag succeeds — no
-	// "object is terminating" race since the row is fully removed.
-	// A fresh create after hard-delete recreates the latest tag.
+	// Versions are immutable: the deleted tag cannot be applied again.
 	res = applyAgentYAML(t, api, createYAML)
-	require.Equal(t, arv0.ApplyStatusCreated, res.Status)
-	require.Equal(t, v1alpha1store.DefaultTag(), res.Tag,
-		"re-apply after hard-delete is a fresh insert at tag latest")
+	require.Equal(t, arv0.ApplyStatusFailed, res.Status)
+	require.Contains(t, res.Error, "was deleted; versions are immutable")
 
-	row, err := store.Get(t.Context(), "default", "soft", v1alpha1store.DefaultTag())
+	// A new tag can be applied.
+	res = applyAgentYAML(t, api, strings.Replace(createYAML, "  name: soft\n", "  name: soft\n  tag: v2\n", 1))
+	require.Equal(t, arv0.ApplyStatusCreated, res.Status, res.Error)
+	require.Equal(t, "v2", res.Tag)
+
+	_, err := store.Get(t.Context(), "default", "soft", v1alpha1store.DefaultTag())
+	require.ErrorIs(t, err, v1alpha1store.ErrVersionDeleted)
+	history, err := store.VersionStatusHistory(t.Context(), "default", "soft", v1alpha1store.DefaultTag())
 	require.NoError(t, err)
-	require.Equal(t, v1alpha1store.DefaultTag(), row.Metadata.Tag)
+	require.Len(t, history, 1)
+	require.Equal(t, v1alpha1store.VersionStatusDeleted, history[0].Status)
 }
 
 // TestResourceRegister_PostUpsertFailureLeavesPersistedRow pins the

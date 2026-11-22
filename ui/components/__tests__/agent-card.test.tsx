@@ -42,6 +42,22 @@ describe("AgentCard", () => {
     expect(onClick).toHaveBeenCalledOnce()
   })
 
+  it("shows a delete button only when showDelete is set", () => {
+    const { rerender } = render(<AgentCard agent={mockAgent} onDelete={vi.fn()} />)
+    expect(screen.queryByRole("button", { name: "Delete agent" })).toBeNull()
+    rerender(<AgentCard agent={mockAgent} showDelete onDelete={vi.fn()} />)
+    expect(screen.getByRole("button", { name: "Delete agent" })).toBeInTheDocument()
+  })
+
+  it("calls onDelete without triggering onClick", async () => {
+    const onDelete = vi.fn()
+    const onClick = vi.fn()
+    render(<AgentCard agent={mockAgent} showDelete onDelete={onDelete} onClick={onClick} />)
+    await userEvent.click(screen.getByRole("button", { name: "Delete agent" }))
+    expect(onDelete).toHaveBeenCalledWith(mockAgent)
+    expect(onClick).not.toHaveBeenCalled()
+  })
+
   it("renders without optional fields", () => {
     const minimalAgent: AgentResponse = {
       agent: {

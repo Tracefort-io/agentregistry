@@ -45,6 +45,10 @@ const (
 //     declaratively; missing tags are filled with the literal "latest".
 //     Re-applying the same tag replaces the prior row atomically when the
 //     content changes. Used for agents, mcp_servers, skills, and prompts.
+//     A delete never removes a version: it appends a "deleted" status change
+//     to the version's history (version_status.go) and marks the row with
+//     deletion_timestamp, after which reads hide it and its tag cannot be
+//     applied again.
 //
 //   - MutableObjectStore (produced by NewMutableObjectStore). Storage key is
 //     (namespace, name). Used for Runtime/Deployment and additional
@@ -54,7 +58,8 @@ const (
 // updated_at, never spec. Reconcilers use PatchStatus exclusively; apply
 // handlers use Upsert exclusively.
 //
-// Delete hard-deletes tagged-artifact rows and mutable rows without finalizers.
+// Delete marks tagged-artifact versions deleted (see above) and hard-deletes
+// mutable rows without finalizers.
 // Mutable rows with finalizers are marked terminating via deletion_timestamp;
 // exact Get can still load them, while GetLatest/List hide them unless the
 // caller explicitly includes terminating rows. PurgeFinalized removes
@@ -69,7 +74,10 @@ type Store struct {
 	// the schema explicitly rather than relying on search_path, so the
 	// Store is correct even on a connection whose search_path points at a
 	// different schema (e.g. an extension's).
-	qualified    string
+	qualified string
+	// events is the schema-qualified version_status_events table, where
+	// tagged-artifact stores append status changes.
+	events       string
 	behavior     StoreBehavior
 	internalMeta bool
 }
@@ -101,7 +109,7 @@ func (s *Store) Behavior() StoreBehavior {
 //
 // For mutable object tables, use NewMutableObjectStore.
 func NewStore(pool *pgxpool.Pool, schema pkgdb.Schema, table string) *Store {
-	return &Store{pool: pool, table: table, qualified: schema.Qualify(table), behavior: TaggedArtifactStore}
+	return &Store{pool: pool, table: table, qualified: schema.Qualify(table), events: schema.Qualify(versionStatusEventsTable), behavior: TaggedArtifactStore}
 }
 
 // NewMutableObjectStore constructs a mutable-object Store for tables keyed by
@@ -326,10 +334,9 @@ func (s *Store) upsertTagged(ctx context.Context, meta *v1alpha1.ObjectMeta, spe
 			return fmt.Errorf("load latest: %w", err)
 		}
 
-		// Reject mutations on terminating rows. Mirrors Kubernetes:
-		// `kubectl apply` on an object with deletionTimestamp returns 409.
+		// A deleted version is immutable: its tag cannot be applied again.
 		if found && existingDeletionTS.Valid {
-			return ErrTerminating
+			return ErrTagDeleted
 		}
 
 		if !found {
@@ -714,21 +721,21 @@ func (s *Store) PatchAnnotations(ctx context.Context, namespace, name, tag strin
 	return s.ApplyPatch(ctx, namespace, name, tag, PatchOpts{Annotations: mutate})
 }
 
-// Get returns a single row, including terminating rows. For tagged-artifact
-// stores, tag is metadata.tag. Mutable-object stores ignore tag and
-// load by namespace/name. Returns pkgdb.ErrNotFound if missing.
+// Get returns a single row. For tagged-artifact stores, tag is
+// metadata.tag, and a deleted version returns ErrVersionDeleted (which
+// matches pkgdb.ErrNotFound); GetIncludingDeleted returns it too.
+// Mutable-object stores ignore tag, load by namespace/name and include
+// terminating rows. Returns pkgdb.ErrNotFound if missing.
 func (s *Store) Get(ctx context.Context, namespace, name, tag string) (*v1alpha1.RawObject, error) {
 	if s.behavior == TaggedArtifactStore {
-		if tag == "" {
-			return nil, errors.New("v1alpha1 store: tag is required")
+		obj, err := s.GetIncludingDeleted(ctx, namespace, name, tag)
+		if err != nil {
+			return nil, err
 		}
-		row := s.pool.QueryRow(ctx,
-			fmt.Sprintf(`
-				SELECT %s
-				FROM %s
-				WHERE namespace=$1 AND name=$2 AND tag=$3`, s.selectColumns(), s.qualified),
-			namespace, name, tag)
-		return scanRow(row, true)
+		if obj.Metadata.DeletionTimestamp != nil {
+			return nil, ErrVersionDeleted
+		}
+		return obj, nil
 	}
 	row := s.pool.QueryRow(ctx,
 		fmt.Sprintf(`
@@ -737,6 +744,24 @@ func (s *Store) Get(ctx context.Context, namespace, name, tag string) (*v1alpha1
 			WHERE namespace=$1 AND name=$2`, s.selectColumns(), s.qualified),
 		namespace, name)
 	return scanRow(row, false)
+}
+
+// GetIncludingDeleted returns a tagged version whether or not it was
+// deleted; deleted versions are kept, with their history.
+func (s *Store) GetIncludingDeleted(ctx context.Context, namespace, name, tag string) (*v1alpha1.RawObject, error) {
+	if s.behavior != TaggedArtifactStore {
+		return nil, errors.New("v1alpha1 store: GetIncludingDeleted is only supported on tagged-artifact stores")
+	}
+	if tag == "" {
+		return nil, errors.New("v1alpha1 store: tag is required")
+	}
+	row := s.pool.QueryRow(ctx,
+		fmt.Sprintf(`
+			SELECT %s
+			FROM %s
+			WHERE namespace=$1 AND name=$2 AND tag=$3`, s.selectColumns(), s.qualified),
+		namespace, name, tag)
+	return scanRow(row, true)
 }
 
 // GetByRef resolves the public reference shape shared by v1alpha1 resources.
@@ -801,16 +826,15 @@ func (s *Store) GetLatestIncludingTerminating(ctx context.Context, namespace, na
 }
 
 // Delete removes a single row. Mutable-object stores may use soft-delete plus
-// finalizer drain. Tagged-artifact rows have no finalizers and are hard-deleted
-// immediately so name/tag can be reapplied without waiting for GC. Returns
-// pkgdb.ErrNotFound if the row doesn't exist.
+// finalizer drain. A tagged-artifact version is marked deleted, with no
+// recorded actor (DeleteVersions records one). Returns pkgdb.ErrNotFound if
+// no live row exists.
 func (s *Store) Delete(ctx context.Context, namespace, name, tag string) error {
 	if s.behavior == TaggedArtifactStore {
 		if tag == "" {
 			return errors.New("v1alpha1 store: tag is required")
 		}
-		args := []any{namespace, name, tag}
-		return s.deleteTagged(ctx, args)
+		return s.DeleteVersions(ctx, namespace, name, tag, StatusChange{})
 	}
 	return s.deleteMutable(ctx, namespace, name)
 }
@@ -873,11 +897,11 @@ func (s *Store) ListTags(ctx context.Context, namespace, name string) ([]*v1alph
 	return out, nil
 }
 
-// DeleteAllTags hard-deletes every tag row for (namespace, name)
-// on a tagged-artifact table. This is the contract of the
-// batch DELETE endpoint when metadata.tag is omitted; callers delete a
-// single tag by including metadata.tag. Returns pkgdb.ErrNotFound
-// when no row exists for (namespace, name).
+// DeleteAllTags marks every live tag of (namespace, name) deleted on a
+// tagged-artifact table, with no recorded actor (DeleteVersions records
+// one). This is the contract of the batch DELETE endpoint when metadata.tag
+// is omitted; callers delete a single tag by including metadata.tag.
+// Returns pkgdb.ErrNotFound when no live version exists for (namespace, name).
 //
 // Calling on a mutable-object Store is a programming error; the per-kind Store
 // hands mutable objects to the single-row Delete path
@@ -889,48 +913,7 @@ func (s *Store) DeleteAllTags(ctx context.Context, namespace, name string) error
 	if namespace == "" || name == "" {
 		return errors.New("v1alpha1 store: namespace and name are required")
 	}
-	cmdTag, err := s.pool.Exec(ctx,
-		fmt.Sprintf(`
-			DELETE FROM %s
-			WHERE namespace=$1 AND name=$2`, s.qualified),
-		namespace, name)
-	if err != nil {
-		return fmt.Errorf("delete all tags: %w", err)
-	}
-	if cmdTag.RowsAffected() == 0 {
-		return pkgdb.ErrNotFound
-	}
-	return nil
-}
-
-func (s *Store) deleteTagged(ctx context.Context, args []any) error {
-	return runInTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var deletionTS pgtype.Timestamptz
-		err := tx.QueryRow(ctx,
-			fmt.Sprintf(`
-				SELECT deletion_timestamp
-				FROM %s
-				WHERE namespace=$1 AND name=$2 AND tag=$3
-				FOR UPDATE`, s.qualified),
-			args...).Scan(&deletionTS)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return pkgdb.ErrNotFound
-			}
-			return fmt.Errorf("load row: %w", err)
-		}
-
-		// Tagged-artifact tables have no finalizers — hard-delete
-		// immediately. This matches the OSS fast-path for finalizer-free
-		// rows: `arctl delete X` then `arctl apply X` works without any
-		// background GC.
-		if _, err := tx.Exec(ctx,
-			fmt.Sprintf(`DELETE FROM %s WHERE namespace=$1 AND name=$2 AND tag=$3`, s.qualified),
-			args...); err != nil {
-			return fmt.Errorf("hard delete: %w", err)
-		}
-		return nil
-	})
+	return s.DeleteVersions(ctx, namespace, name, "", StatusChange{})
 }
 
 func (s *Store) deleteMutable(ctx context.Context, namespace, name string) error {
@@ -993,20 +976,17 @@ func jsonArrayNonEmpty(raw []byte) (bool, error) {
 	return len(arr) > 0, nil
 }
 
-// PurgeFinalized hard-deletes terminating rows. For deployments this
-// requires finalizers to be empty; for tagged-artifact tables there is
-// no finalizers column, so any row past deletion_timestamp is purged.
-// Returns the number of rows purged.
+// PurgeFinalized hard-deletes terminating mutable rows whose finalizers
+// are empty. Tagged-artifact versions are never purged: a deleted version
+// is kept, with its history. Returns the number of rows purged.
 func (s *Store) PurgeFinalized(ctx context.Context) (int64, error) {
-	var query string
 	if s.behavior == TaggedArtifactStore {
-		query = fmt.Sprintf(`DELETE FROM %s WHERE deletion_timestamp IS NOT NULL`, s.qualified)
-	} else {
-		query = fmt.Sprintf(`
-			DELETE FROM %s
-			WHERE deletion_timestamp IS NOT NULL
-			  AND finalizers = '[]'::jsonb`, s.qualified)
+		return 0, nil
 	}
+	query := fmt.Sprintf(`
+		DELETE FROM %s
+		WHERE deletion_timestamp IS NOT NULL
+		  AND finalizers = '[]'::jsonb`, s.qualified)
 	cmdTag, err := s.pool.Exec(ctx, query)
 	if err != nil {
 		return 0, fmt.Errorf("purge finalized: %w", err)

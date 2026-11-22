@@ -8,7 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Bot, Github, Play } from "lucide-react"
+import { Bot, Github, Play, Trash2 } from "lucide-react"
 
 interface AgentCardProps {
   agent: AgentResponse
@@ -21,7 +21,7 @@ interface AgentCardProps {
   tagCount?: number
 }
 
-export function AgentCard({ agent, onDeploy, showDeploy = false, onClick, tagCount }: AgentCardProps) {
+export function AgentCard({ agent, onDelete, onDeploy, showDelete = false, showDeploy = false, onClick, tagCount }: AgentCardProps) {
   const { agent: agentData, _meta } = agent
   const official = _meta?.['io.modelcontextprotocol.registry/official']
   const source = agentData.source
@@ -103,6 +103,17 @@ export function AgentCard({ agent, onDeploy, showDeploy = false, onClick, tagCou
                 <TooltipContent><p>No container image specified</p></TooltipContent>
               </Tooltip>
             )
+          )}
+          {showDelete && onDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={(e) => { e.stopPropagation(); onDelete(agent) }}
+              aria-label="Delete agent"
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
           )}
         </div>
       </div>

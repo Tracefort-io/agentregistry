@@ -57,11 +57,13 @@ const DefaultNamespace = "default"
 //     state, tool metadata, etc. Not indexed; can carry larger payloads.
 //     Callers read annotations by key; the server never filters on them.
 //
-// DeletionTimestamp marks a row as terminating. Soft-delete is
-// server-side: a DELETE call sets DeletionTimestamp and the row is
-// later hard-deleted by the GC pass. There is no user-facing finalizer
-// API; controllers may seed internal finalizers for async teardown
-// (for example Deployment adapter removal) before GC purges the row.
+// DeletionTimestamp marks a row as deleted. Soft-delete is server-side: a
+// DELETE call sets DeletionTimestamp. A tagged version (Agent, MCPServer,
+// Skill, Prompt, Model, Plugin) is then kept with its status history and
+// never purged; a mutable object is later hard-deleted by the GC pass.
+// There is no user-facing finalizer API; controllers may seed internal
+// finalizers for async teardown (for example Deployment adapter removal)
+// before GC purges the row.
 type ObjectMeta struct {
 	Namespace   string            `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 	Name        string            `json:"name" yaml:"name"`
@@ -81,9 +83,9 @@ type ObjectMeta struct {
 	UpdatedAt  time.Time `json:"updatedAt,omitzero" yaml:"updatedAt,omitempty"`
 
 	// DeletionTimestamp is set by the Store when Delete is called. A non-nil
-	// DeletionTimestamp means the object is terminating; the row stays
-	// observable via Get until the GC pass purges it. Clients MUST NOT
-	// set this on apply.
+	// DeletionTimestamp means a tagged version was deleted (it is kept) or a
+	// mutable object is terminating (it stays observable via Get until the
+	// GC pass purges it). Clients MUST NOT set this on apply.
 	DeletionTimestamp *time.Time `json:"deletionTimestamp,omitempty" yaml:"deletionTimestamp,omitempty"`
 }
 

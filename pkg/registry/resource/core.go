@@ -61,7 +61,10 @@ type applyError struct {
 	Stage       applyStage
 	Err         error
 	Terminating bool
-	NotFound    bool
+	// TagDeleted marks an apply to a tag whose version was deleted, which
+	// versions' immutability refuses (409).
+	TagDeleted bool
+	NotFound   bool
 }
 
 func (e *applyError) Error() string {
@@ -233,6 +236,7 @@ func ProductionAdmission(ctx context.Context, in types.AdmissionInput) (types.Ad
 			Stage:       stageUpsert,
 			Err:         err,
 			Terminating: errors.Is(err, v1alpha1store.ErrTerminating),
+			TagDeleted:  errors.Is(err, v1alpha1store.ErrTagDeleted),
 		}
 	}
 
@@ -373,8 +377,9 @@ func deletePipeline(
 }
 
 // ProductionDeleteAdmission is the OSS delete admission implementation. It
-// removes the selected production row(s) and then runs the per-kind post-delete
-// hook when present.
+// deletes the selected production row(s) and then runs the per-kind
+// post-delete hook when present. Tagged versions are kept and marked
+// deleted, with the caller and any approval recorded in their history.
 func ProductionDeleteAdmission(ctx context.Context, in types.DeleteAdmissionInput) (types.DeleteAdmissionResult, error) {
 	if in.DryRun {
 		return types.DeleteAdmissionResult{Status: arv0.ApplyStatusDryRun, Tag: in.Tag}, nil
@@ -383,7 +388,13 @@ func ProductionDeleteAdmission(ctx context.Context, in types.DeleteAdmissionInpu
 	if !ok || store == nil {
 		return types.DeleteAdmissionResult{}, errors.New("production store is required")
 	}
-	if err := store.DeleteByRef(ctx, in.Namespace, in.Name, in.Tag); err != nil {
+	var err error
+	if store.Behavior() == v1alpha1store.TaggedArtifactStore {
+		err = store.DeleteVersions(ctx, in.Namespace, in.Name, in.Tag, statusChangeFrom(ctx))
+	} else {
+		err = store.DeleteByRef(ctx, in.Namespace, in.Name, in.Tag)
+	}
+	if err != nil {
 		return types.DeleteAdmissionResult{}, &applyError{
 			Stage:    stageDelete,
 			Err:      err,
@@ -396,4 +407,17 @@ func ProductionDeleteAdmission(ctx context.Context, in types.DeleteAdmissionInpu
 		}
 	}
 	return types.DeleteAdmissionResult{Status: arv0.ApplyStatusDeleted, Tag: in.Tag}, nil
+}
+
+// statusChangeFrom is who is changing a version's status: the caller of
+// ctx's session, the approval an approved change runs under, and the request.
+func statusChangeFrom(ctx context.Context) v1alpha1store.StatusChange {
+	e := audit.Annotate(ctx, audit.Event{})
+	return v1alpha1store.StatusChange{
+		ActorSubject:  e.Actor.Subject,
+		ActorIssuer:   e.Actor.Issuer,
+		ActorUsername: e.Actor.Username,
+		ApprovalID:    types.ApprovalIDFrom(ctx),
+		RequestID:     e.RequestID,
+	}
 }

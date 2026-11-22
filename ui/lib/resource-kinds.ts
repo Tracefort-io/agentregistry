@@ -128,6 +128,18 @@ export function deleteDocument(kind: ResourceKind, item: AdminItem): string {
   return JSON.stringify({ apiVersion: "ar.dev/v1alpha1", kind: kind.kind, metadata })
 }
 
+// deleteAllTagsDocument is the /v0/apply document that deletes every tag of
+// a tagged resource: it names no tag. The registry keeps the versions and
+// marks them deleted.
+export function deleteAllTagsDocument(kind: string, namespace: string | undefined, name: string): string {
+  return JSON.stringify({ apiVersion: "ar.dev/v1alpha1", kind, metadata: { namespace: namespace || "default", name } })
+}
+
+// yamlBody wraps an /v0/apply document for the YAML endpoint.
+export function yamlBody(text: string): Blob {
+  return new Blob([text], { type: "application/yaml" })
+}
+
 export interface ApplyResult {
   kind?: string
   name: string

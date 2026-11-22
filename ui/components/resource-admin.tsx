@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { Plus, RefreshCw, Trash2 } from "lucide-react"
 import { applyBatch, client, deleteBatch } from "@/lib/admin-api"
 import { useCan, useCanRequest } from "@/lib/permissions"
-import { AdminItem, ApplyResult, deleteDocument, failedResults, pendingResults, RESOURCE_KINDS, ResourceKind, ResourceKindName } from "@/lib/resource-kinds"
+import { AdminItem, ApplyResult, deleteDocument, failedResults, pendingResults, RESOURCE_KINDS, ResourceKind, ResourceKindName, yamlBody } from "@/lib/resource-kinds"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -31,10 +31,6 @@ async function fetchItems(kind: ResourceKind): Promise<{ items: AdminItem[]; err
     return { items: [], error: `Could not load ${kind.title.toLowerCase()} (HTTP ${response?.status ?? "error"}).` }
   }
   return { items: data?.items ?? [], error: "" }
-}
-
-function yamlBody(text: string): Blob {
-  return new Blob([text], { type: "application/yaml" })
 }
 
 // ResourceAdmin lists one platform kind across all namespaces and, when the

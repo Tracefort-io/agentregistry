@@ -32,6 +32,8 @@ arctl delete agent summarizer --tag stable   # exact tag
 arctl delete agent summarizer --all-tags     # delete every tag
 ```
 
+Registry records are immutable. A delete doesn't remove a version: it records a `deleted` status change in the version's history (who, under which approval, when) and hides the version from `get` and lists. `GET /v0/<kind>/<name>/<tag>?includeTerminating=true` still returns it. A deleted tag can't be applied again; apply new content under a new tag.
+
 Run locally with `arctl run` from inside the project directory (it reads `arctl.yaml` to pick the right framework):
 
 ```bash

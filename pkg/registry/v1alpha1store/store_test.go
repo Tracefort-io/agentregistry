@@ -315,11 +315,10 @@ func TestStore_GetNotFound(t *testing.T) {
 	require.True(t, errors.Is(err, pkgdb.ErrNotFound))
 }
 
-// TestStore_DeleteHardDeletesTaggedRow guards the tagged-artifact fast path:
-// rows have no finalizers and Delete
-// hard-deletes immediately. arctl delete + arctl apply works without any
-// background GC pass.
-func TestStore_DeleteHardDeletesTaggedRow(t *testing.T) {
+// TestStore_DeleteMarksTaggedVersionDeleted guards delete as a status
+// change on tagged artifacts: the deleted version is hidden from reads and
+// kept, and other tags are untouched.
+func TestStore_DeleteMarksTaggedVersionDeleted(t *testing.T) {
 	pool := NewTestPool(t)
 	store := NewStore(pool, TestSchema(), testTable)
 	ctx := context.Background()
@@ -338,9 +337,11 @@ func TestStore_DeleteHardDeletesTaggedRow(t *testing.T) {
 	_, err = store.GetLatest(ctx, testNS, "foo")
 	require.ErrorIs(t, err, pkgdb.ErrNotFound)
 
-	// latest is gone — fully removed, while the explicit tag remains.
+	// latest is deleted — hidden but kept — while the explicit tag remains.
 	_, err = store.Get(ctx, testNS, "foo", DefaultTag())
-	require.ErrorIs(t, err, pkgdb.ErrNotFound)
+	require.ErrorIs(t, err, ErrVersionDeleted)
+	_, err = store.GetIncludingDeleted(ctx, testNS, "foo", DefaultTag())
+	require.NoError(t, err)
 	stable, err := store.Get(ctx, testNS, "foo", "stable")
 	require.NoError(t, err)
 	require.Equal(t, "stable", stable.Metadata.Tag)
@@ -704,11 +705,13 @@ func TestStore_ControlPlaneEventsTrackSourceWritesOnly(t *testing.T) {
 	require.Equal(t, "update", batch[0].Operation)
 	require.Equal(t, int64(2), batch[0].Generation)
 
+	// A delete keeps the version and sets its deletion_timestamp, which
+	// wakes controllers as an update.
 	require.NoError(t, store.Delete(ctx, testNS, "evented", DefaultTag()))
 	batch, err = events.ListAfter(ctx, batch[0].Revision, 10)
 	require.NoError(t, err)
 	require.Len(t, batch, 1)
-	require.Equal(t, "delete", batch[0].Operation)
+	require.Equal(t, "update", batch[0].Operation)
 }
 
 func TestStore_ControlPlaneEventTracksResolvedSourceStatusChanges(t *testing.T) {

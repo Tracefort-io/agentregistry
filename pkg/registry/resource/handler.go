@@ -251,6 +251,9 @@ type getInput struct {
 	Namespace string `query:"namespace" doc:"Namespace (internal; defaults to 'default')."`
 	Name      string `path:"name"`
 	Tag       string `path:"tag"`
+	// IncludeTerminating returns a deleted version too: versions are kept,
+	// with their status history, after a delete.
+	IncludeTerminating bool `query:"includeTerminating" doc:"Return the version even if it was deleted."`
 }
 
 type getLatestInput struct {
@@ -427,7 +430,11 @@ func registerGetTagged[T v1alpha1.Object](api huma.API, cfg Config, newObj func(
 				return nil, err
 			}
 		}
-		row, err := cfg.Store.Get(ctx, ns, name, tag)
+		get := cfg.Store.Get
+		if in.IncludeTerminating {
+			get = cfg.Store.GetIncludingDeleted
+		}
+		row, err := get(ctx, ns, name, tag)
 		if err != nil {
 			return nil, mapNotFound(err, kind, ns, name, tag)
 		}
@@ -676,6 +683,11 @@ func mapApplyErrorToHuma(ae *applyError, kind, ns, name, tag string) error {
 	case stageMarshal:
 		return huma.Error400BadRequest("marshal spec: " + ae.Err.Error())
 	case stageUpsert:
+		if ae.TagDeleted {
+			return huma.Error409Conflict(fmt.Sprintf(
+				"%s %s/%s@%s was deleted; versions are immutable, apply it under a new tag",
+				kind, ns, name, tag))
+		}
 		if ae.Terminating {
 			return huma.Error409Conflict(fmt.Sprintf(
 				"%s %s/%s/%s is terminating; delete + re-apply once GC purges the row",

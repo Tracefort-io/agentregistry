@@ -143,10 +143,10 @@ func TestUpsert_ConcurrentExplicitTags(t *testing.T) {
 	require.Len(t, map[string]struct{}{tags[0]: {}, tags[1]: {}, tags[2]: {}, tags[3]: {}, tags[4]: {}}, N)
 }
 
-// TestUpsert_AfterTotalDeletion_RecreatesLatest verifies that once every tag
-// row for (namespace, name) is removed, the next blank-tag apply recreates the
-// literal latest tag.
-func TestUpsert_AfterTotalDeletion_RecreatesLatest(t *testing.T) {
+// TestUpsert_AfterTotalDeletion_RefusesDeletedTag verifies that once every
+// tag of (namespace, name) is deleted, a deleted tag cannot be applied again
+// (versions are immutable), while a new tag can.
+func TestUpsert_AfterTotalDeletion_RefusesDeletedTag(t *testing.T) {
 	store := setupAgentStore(t)
 	ctx := context.Background()
 
@@ -157,9 +157,14 @@ func TestUpsert_AfterTotalDeletion_RecreatesLatest(t *testing.T) {
 
 	require.NoError(t, store.DeleteAllTags(ctx, "default", "foo"))
 
-	res, err := store.Upsert(ctx, agentObj("foo", "model-fresh", nil))
+	_, err := store.Upsert(ctx, agentObj("foo", "model-fresh", nil))
+	require.ErrorIs(t, err, v1alpha1store.ErrTagDeleted)
+
+	fresh := agentObj("foo", "model-fresh", nil)
+	fresh.Metadata.Tag = "v2"
+	res, err := store.Upsert(ctx, fresh)
 	require.NoError(t, err)
-	require.Equal(t, v1alpha1store.DefaultTag(), res.Tag)
+	require.Equal(t, "v2", res.Tag)
 	require.Equal(t, v1alpha1store.UpsertCreated, res.Outcome)
 }
 

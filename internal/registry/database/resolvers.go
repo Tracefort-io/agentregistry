@@ -25,10 +25,7 @@ func NewResolver(stores map[string]*v1alpha1store.Store) v1alpha1.ResolverFunc {
 		}
 		_, err := store.GetByRef(ctx, ref.Namespace, ref.Name, ref.Tag)
 		if err != nil {
-			if errors.Is(err, pkgdb.ErrNotFound) {
-				return v1alpha1.ErrDanglingRef
-			}
-			return err
+			return danglingRef(ref, err)
 		}
 		return nil
 	}
@@ -50,10 +47,7 @@ func NewGetter(stores map[string]*v1alpha1store.Store) v1alpha1.GetterFunc {
 		}
 		raw, err := store.GetByRef(ctx, ref.Namespace, ref.Name, ref.Tag)
 		if err != nil {
-			if errors.Is(err, pkgdb.ErrNotFound) {
-				return nil, v1alpha1.ErrDanglingRef
-			}
-			return nil, err
+			return nil, danglingRef(ref, err)
 		}
 		_, newObj, ok := v1alpha1.Default.Lookup(ref.Kind)
 		if !ok {
@@ -81,4 +75,17 @@ func NewGetter(stores map[string]*v1alpha1store.Store) v1alpha1.GetterFunc {
 		}
 		return obj, nil
 	}
+}
+
+// danglingRef maps a missing target to v1alpha1.ErrDanglingRef, saying when
+// the version exists but was deleted: a deployment of it is then refused at
+// apply, and an existing one is held as ReferencePending, not removed.
+func danglingRef(ref v1alpha1.ResourceRef, err error) error {
+	switch {
+	case errors.Is(err, v1alpha1store.ErrVersionDeleted):
+		return fmt.Errorf("%w: %s %s/%s@%s was deleted", v1alpha1.ErrDanglingRef, ref.Kind, ref.Namespace, ref.Name, ref.Tag)
+	case errors.Is(err, pkgdb.ErrNotFound):
+		return v1alpha1.ErrDanglingRef
+	}
+	return err
 }

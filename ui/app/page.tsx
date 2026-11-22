@@ -32,6 +32,7 @@ import { AddSkillDialog } from "@/components/add-skill-dialog"
 import { AddAgentDialog } from "@/components/add-agent-dialog"
 import { AddPromptDialog } from "@/components/add-prompt-dialog"
 import { DeployDialog } from "@/components/deploy-dialog"
+import { CatalogDeleteDialog, type CatalogDeleteTarget } from "@/components/catalog-delete-dialog"
 import { listServersV0, listSkillsV0, listAgentsV0, listPromptsV0, ServerResponse, SkillResponse, AgentResponse, PromptResponse } from "@/lib/admin-api"
 import MCPIcon from "@/components/icons/mcp"
 import { CATALOG_SECTIONS, useCatalogNav } from "@/lib/catalog-nav"
@@ -94,6 +95,12 @@ export default function AdminPage() {
     prompt: needsApproval("Prompt", "apply"),
   }
   const canAddAny = Object.values(canAdd).some(Boolean)
+  // Deleting goes through /v0/apply too, and deletes every tag of a name.
+  const canDelete = {
+    server: offers("MCPServer", "delete"),
+    skill: offers("Skill", "delete"),
+    agent: offers("Agent", "delete"),
+  }
   // Deploying creates a Deployment of the target.
   const canDeployServer = can("MCPServer", "deploy") && offers("Deployment", "apply")
   const canDeployAgent = can("Agent", "deploy") && offers("Deployment", "apply")
@@ -122,6 +129,17 @@ export default function AdminPage() {
   const [selectedPrompt, setSelectedPrompt] = useState<GroupedPrompt | null>(null)
   const [deployServerTarget, setDeployServerTarget] = useState<ServerResponse | null>(null)
   const [deployAgentTarget, setDeployAgentTarget] = useState<AgentResponse | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<CatalogDeleteTarget | null>(null)
+
+  // askDelete asks to delete every tag of a grouped catalog entry in the
+  // namespace of the tag the card shows.
+  const askDelete = (kind: string, label: string, shown: { namespace?: string; name: string }, allTags: { namespace?: string; tag: string }[]) => {
+    const namespace = shown.namespace || "default"
+    setDeleteTarget({
+      kind, label, namespace, name: shown.name,
+      tags: allTags.filter((t) => (t.namespace || "default") === namespace).map((t) => t.tag).filter(Boolean),
+    })
+  }
 
   const getStars = (server: ServerResponse): number => {
     const publisherProvided = server.server._meta?.['io.modelcontextprotocol.registry/publisher-provided'] as Record<string, unknown> | undefined
@@ -582,6 +600,8 @@ export default function AdminPage() {
                     onClick={() => setSelectedServer(server)}
                     showDeploy={canDeployServer}
                     onDeploy={(s) => setDeployServerTarget(s)}
+                    showDelete={canDelete.server}
+                    onDelete={() => askDelete("MCPServer", "MCP server", server.server, server.allTags.map((t) => t.server))}
                   />
                 ))}
               </div>
@@ -608,6 +628,8 @@ export default function AdminPage() {
                     skill={skill}
                     tagCount={skill.tagCount}
                     onClick={() => setSelectedSkill(skill)}
+                    showDelete={canDelete.skill}
+                    onDelete={() => askDelete("Skill", "skill", skill.skill, skill.allTags.map((t) => t.skill))}
                   />
                 ))}
               </div>
@@ -636,6 +658,8 @@ export default function AdminPage() {
                     onClick={() => setSelectedAgent(agent)}
                     showDeploy={canDeployAgent}
                     onDeploy={(a) => setDeployAgentTarget(a)}
+                    showDelete={canDelete.agent}
+                    onDelete={() => askDelete("Agent", "agent", agent.agent, agent.allTags.map((t) => t.agent))}
                   />
                 ))}
               </div>
@@ -689,6 +713,8 @@ export default function AdminPage() {
         agent={deployAgentTarget}
         onDeploySuccess={fetchData}
       />
+
+      <CatalogDeleteDialog target={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={fetchData} />
 
       <Sheet open={isSheetOpen} onOpenChange={(open) => !open && closeSheet()}>
         <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">

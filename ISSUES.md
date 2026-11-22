@@ -57,6 +57,10 @@ It was seen twice: when a schema-name clash crashed route registration, and when
 
 `metadata.tag: Bad Tag!` is accepted on `POST /v0/apply`, although the tag rule (`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`) forbids it. Names are validated; tags aren't.
 
+### 4a. A tagged version can still be overwritten
+
+Registry records are immutable, and a delete now keeps the version and appends a `deleted` status change (`version_status_events`). But re-applying an existing tag with different content still replaces that version in place (`UpsertReplaced` in `pkg/registry/v1alpha1store/store.go`), including the default `latest` tag. Immutable versions need new content under a new tag; `latest` would then point to the newest version, as the MCP Registry's `isLatest` does, instead of being a tag that is rewritten.
+
 ## Gaps
 
 ### 5. Writes refused at the gateway aren't in the registry's audit log
