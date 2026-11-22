@@ -95,7 +95,7 @@ func TestStageForApprovalChecksBeforeHolding(t *testing.T) {
 			obj := mcpServer(t, tt.objName)
 			res := arv0.ApplyResult{Kind: v1alpha1.KindMCPServer, Namespace: "default", Name: tt.objName}
 
-			got, final := stageForApproval(context.Background(), cfg, res, &applyError{Stage: stageAuth, Err: errNeedsApproval},
+			got, final := stageForApproval(context.Background(), cfg, nil, res, &applyError{Stage: stageAuth, Err: errNeedsApproval},
 				"apply", *obj.GetMetadata(), obj, tt.dryRun)
 
 			assert.Equal(t, tt.wantFinal, final)
@@ -132,7 +132,7 @@ spec:
 	st := &holdStager{holds: true}
 	res := arv0.ApplyResult{Kind: v1alpha1.KindRuntime, Namespace: "default", Name: "lab"}
 
-	got, final := stageForApproval(context.Background(), ApplyConfig{Approvals: st}, res,
+	got, final := stageForApproval(context.Background(), ApplyConfig{Approvals: st}, nil, res,
 		&applyError{Stage: stageAuth, Err: errNeedsApproval}, "apply", *obj.GetMetadata(), obj, false)
 
 	require.True(t, final)
@@ -146,7 +146,7 @@ func TestStageForApprovalHoldsDeletesWithoutChecks(t *testing.T) {
 	res := arv0.ApplyResult{Kind: v1alpha1.KindMCPServer, Namespace: "default", Name: "Not_A_DNS_Name"}
 	meta := v1alpha1.ObjectMeta{Namespace: "default", Name: "Not_A_DNS_Name"}
 
-	got, final := stageForApproval(context.Background(), ApplyConfig{Approvals: st}, res,
+	got, final := stageForApproval(context.Background(), ApplyConfig{Approvals: st}, nil, res,
 		&applyError{Stage: stageAuth, Err: errNeedsApproval}, "delete", meta, nil, false)
 
 	require.True(t, final)

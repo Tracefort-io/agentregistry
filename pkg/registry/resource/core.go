@@ -219,6 +219,13 @@ func compensateAdmissionError(
 // run the per-kind post-upsert hook.
 func ProductionAdmission(ctx context.Context, in types.AdmissionInput) (types.AdmissionResult, error) {
 	if in.DryRun {
+		// A dry run reports what the write would do: an apply to a deleted
+		// tag fails.
+		if store, ok := in.Store.(*v1alpha1store.Store); ok && store != nil && in.Object != nil {
+			if ae := refuseDeletedTag(ctx, store, *in.Object.GetMetadata()); ae != nil {
+				return types.AdmissionResult{}, ae
+			}
+		}
 		return types.AdmissionResult{Status: arv0.ApplyStatusDryRun, Tag: in.Tag}, nil
 	}
 	store, ok := in.Store.(*v1alpha1store.Store)
@@ -420,4 +427,18 @@ func statusChangeFrom(ctx context.Context) v1alpha1store.StatusChange {
 		ApprovalID:    types.ApprovalIDFrom(ctx),
 		RequestID:     e.RequestID,
 	}
+}
+
+// refuseDeletedTag fails an apply to a tagged version that was deleted, as
+// the store's Upsert would: versions are immutable. It lets a dry run and a
+// change about to be held for approval report it before any write.
+func refuseDeletedTag(ctx context.Context, store *v1alpha1store.Store, meta v1alpha1.ObjectMeta) *applyError {
+	deleted, err := store.TagDeleted(ctx, meta.Namespace, meta.Name, meta.Tag)
+	if err != nil {
+		return &applyError{Stage: stageUpsert, Err: err}
+	}
+	if deleted {
+		return &applyError{Stage: stageUpsert, Err: v1alpha1store.ErrTagDeleted, TagDeleted: true}
+	}
+	return nil
 }

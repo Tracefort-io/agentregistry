@@ -93,3 +93,67 @@ func TestApply_HoldsChangesThatNeedApproval(t *testing.T) {
 	assert.Equal(t, "delete", st.inputs[1].Verb)
 	assert.Nil(t, st.inputs[1].Object)
 }
+
+// TestApply_RefusesADeletedTagBeforeHoldingOrDryRunning pins that an apply
+// to a deleted tag fails at once — when it would be held for approval and
+// in a dry run — instead of asking an approver for a change that cannot be
+// applied once approved.
+func TestApply_RefusesADeletedTagBeforeHoldingOrDryRunning(t *testing.T) {
+	pool := v1alpha1store.NewTestPool(t)
+	store := v1alpha1store.NewStore(pool, v1alpha1store.TestSchema(), "agents")
+	for _, name := range []string{"held", "direct"} {
+		_, err := store.Upsert(t.Context(), &v1alpha1.Agent{
+			Metadata: v1alpha1.ObjectMeta{Namespace: "default", Name: name},
+			Spec:     v1alpha1.AgentSpec{Title: "t"},
+		})
+		require.NoError(t, err)
+		require.NoError(t, store.DeleteAllTags(t.Context(), "default", name))
+	}
+	st := &stager{}
+	authorize := func(_ context.Context, in resource.AuthorizeInput) error {
+		if in.Name == "held" {
+			return errNeedsApproval
+		}
+		return nil
+	}
+	_, api := humatest.New(t)
+	resource.RegisterApply(api, resource.ApplyConfig{
+		BasePrefix:  "/v0",
+		Stores:      map[string]*v1alpha1store.Store{v1alpha1.KindAgent: store},
+		Authorizers: map[string]func(context.Context, resource.AuthorizeInput) error{v1alpha1.KindAgent: authorize},
+		Approvals:   st,
+	})
+	apply := func(query, body string) arv0.ApplyResult {
+		t.Helper()
+		resp := api.Post("/v0/apply"+query, "Content-Type: application/yaml", strings.NewReader(body))
+		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+		var out struct {
+			Results []arv0.ApplyResult `json:"results"`
+		}
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+		require.Len(t, out.Results, 1)
+		return out.Results[0]
+	}
+
+	tests := []struct {
+		name, query, doc string
+	}{
+		{"held for approval", "", agentDoc("held", "")},
+		{"held for approval, explicit tag", "", agentDoc("held", "latest")},
+		{"dry run", "?dryRun=true", agentDoc("direct", "")},
+		{"applied directly", "", agentDoc("direct", "")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := apply(tt.query, tt.doc)
+			assert.Equal(t, arv0.ApplyStatusFailed, got.Status)
+			assert.Contains(t, got.Error, "was deleted; versions are immutable")
+		})
+	}
+	assert.Empty(t, st.inputs, "nothing is held for approval")
+
+	// A new tag is still held as usual.
+	got := apply("", agentDoc("held", "v2"))
+	assert.Equal(t, arv0.ApplyStatusPendingApproval, got.Status)
+	require.Len(t, st.inputs, 1)
+}

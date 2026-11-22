@@ -94,3 +94,30 @@ func TestDeleteVersions_OnlyForTaggedStores(t *testing.T) {
 	store := v1alpha1store.NewMutableObjectStore(pool, v1alpha1store.TestSchema(), "runtimes")
 	require.Error(t, store.DeleteVersions(context.Background(), "default", "x", "", v1alpha1store.StatusChange{}))
 }
+
+func TestTagDeleted(t *testing.T) {
+	store := setupAgentStore(t)
+	ctx := context.Background()
+	for _, tag := range []string{"latest", "kept"} {
+		_, err := store.Upsert(ctx, taggedAgentObj("foo", tag, "t", nil))
+		require.NoError(t, err)
+	}
+	require.NoError(t, store.DeleteVersions(ctx, "default", "foo", "latest", v1alpha1store.StatusChange{}))
+
+	tests := []struct {
+		name, tag, version string
+		want               bool
+	}{
+		{"deleted tag", "latest", "foo", true},
+		{"empty tag is the default tag", "", "foo", true},
+		{"live tag", "kept", "foo", false},
+		{"no such version", "latest", "bar", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := store.TagDeleted(ctx, "default", tt.version, tt.tag)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}

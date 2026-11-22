@@ -95,6 +95,29 @@ func (s *Store) DeleteVersions(ctx context.Context, namespace, name, tag string,
 	})
 }
 
+// TagDeleted reports whether the version at tag was deleted, so an apply to
+// it would fail with ErrTagDeleted. An empty tag is the default tag; a tag
+// with no version is not deleted.
+func (s *Store) TagDeleted(ctx context.Context, namespace, name, tag string) (bool, error) {
+	if s.behavior != TaggedArtifactStore {
+		return false, nil
+	}
+	if tag == "" {
+		tag = DefaultTag()
+	}
+	var deleted bool
+	err := s.pool.QueryRow(ctx,
+		fmt.Sprintf(`SELECT deletion_timestamp IS NOT NULL FROM %s WHERE namespace=$1 AND name=$2 AND tag=$3`, s.qualified),
+		namespace, name, tag).Scan(&deleted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("tag deleted: %w", err)
+	}
+	return deleted, nil
+}
+
 // VersionStatusEvent is one entry of a version's status history.
 type VersionStatusEvent struct {
 	PreviousStatus string

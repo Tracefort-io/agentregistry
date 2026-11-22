@@ -238,7 +238,7 @@ func applyOne(ctx context.Context, cfg ApplyConfig, obj v1alpha1.Object, namespa
 		Audit:             cfg.Audit,
 	}, dryRun)
 	if ae != nil {
-		if staged, ok := stageForApproval(ctx, cfg, res, ae, "apply", meta, obj, dryRun); ok {
+		if staged, ok := stageForApproval(ctx, cfg, store, res, ae, "apply", meta, obj, dryRun); ok {
 			return staged
 		}
 		return failResult(res, ae)
@@ -284,7 +284,7 @@ func deleteOne(ctx context.Context, cfg ApplyConfig, obj v1alpha1.Object, namesp
 		Audit:           cfg.Audit,
 	}, dryRun)
 	if ae != nil {
-		if staged, ok := stageForApproval(ctx, cfg, res, ae, "delete", meta, nil, dryRun); ok {
+		if staged, ok := stageForApproval(ctx, cfg, store, res, ae, "delete", meta, nil, dryRun); ok {
 			return staged
 		}
 		return failResult(res, ae)
@@ -397,8 +397,9 @@ func failResult(res arv0.ApplyResult, ae *applyError) arv0.ApplyResult {
 // stageForApproval hands a refused write to cfg.Approvals. ok reports that
 // the result is final: the change is pending approval, its document failed
 // the checks it would fail once approved, or staging it failed. A dry run is
-// never staged.
-func stageForApproval(ctx context.Context, cfg ApplyConfig, res arv0.ApplyResult, ae *applyError, verb string, meta v1alpha1.ObjectMeta, obj v1alpha1.Object, dryRun bool) (arv0.ApplyResult, bool) {
+// never staged. store is the document's kind's store; nil skips the check
+// for a deleted tag.
+func stageForApproval(ctx context.Context, cfg ApplyConfig, store *v1alpha1store.Store, res arv0.ApplyResult, ae *applyError, verb string, meta v1alpha1.ObjectMeta, obj v1alpha1.Object, dryRun bool) (arv0.ApplyResult, bool) {
 	if cfg.Approvals == nil || dryRun || ae.Stage != stageAuth || !cfg.Approvals.Holds(ctx, res.Kind, ae.Err) {
 		return res, false
 	}
@@ -407,16 +408,14 @@ func stageForApproval(ctx context.Context, cfg ApplyConfig, res arv0.ApplyResult
 		meta = *obj.GetMetadata()
 		res.Tag = meta.Tag
 		// Refuse a document that could not be applied once approved, instead
-		// of asking an approver to approve it. The checks run on a copy:
-		// validation may canonicalize fields, and the held document must stay
-		// the one whose hash the denial is bound to.
-		check, err := copyObject(obj)
+		// of asking an approver to approve it.
+		cae, err := checkBeforeHolding(ctx, cfg, store, obj, meta)
 		if err != nil {
 			res.Status = arv0.ApplyStatusFailed
 			res.Error = "approval request: " + err.Error()
 			return res, true
 		}
-		if cae := checkObject(ctx, check, cfg.Resolver, cfg.RegistryValidator); cae != nil {
+		if cae != nil {
 			return failResult(res, cae), true
 		}
 	}
@@ -435,6 +434,25 @@ func stageForApproval(ctx context.Context, cfg ApplyConfig, res arv0.ApplyResult
 	res.Status = arv0.ApplyStatusPendingApproval
 	res.ApprovalRequest = id
 	return res, true
+}
+
+// checkBeforeHolding runs the checks obj would fail once approved. They run
+// on a copy: validation may canonicalize fields, and the held document must
+// stay the one whose hash the denial is bound to. A deleted tag fails too,
+// since versions are immutable; a nil store skips that check. err reports
+// that the checks could not run.
+func checkBeforeHolding(ctx context.Context, cfg ApplyConfig, store *v1alpha1store.Store, obj v1alpha1.Object, meta v1alpha1.ObjectMeta) (*applyError, error) {
+	check, err := copyObject(obj)
+	if err != nil {
+		return nil, err
+	}
+	if cae := checkObject(ctx, check, cfg.Resolver, cfg.RegistryValidator); cae != nil {
+		return cae, nil
+	}
+	if store == nil {
+		return nil, nil
+	}
+	return refuseDeletedTag(ctx, store, meta), nil
 }
 
 // copyObject returns a deep copy of obj: its spec through the JSON encoding,
