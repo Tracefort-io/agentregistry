@@ -95,9 +95,10 @@ func TestApply_HoldsChangesThatNeedApproval(t *testing.T) {
 }
 
 // TestApply_RefusesADeletedTagBeforeHoldingOrDryRunning pins that an apply
-// to a deleted tag fails at once — when it would be held for approval and
-// in a dry run — instead of asking an approver for a change that cannot be
-// applied once approved.
+// to a deleted tag fails at once — when it would be held for approval, in a
+// dry run and applied directly — instead of asking an approver for a change
+// that cannot be applied once approved. The deleted tag is reported before
+// the other checks: here every document also has a dangling reference.
 func TestApply_RefusesADeletedTagBeforeHoldingOrDryRunning(t *testing.T) {
 	pool := v1alpha1store.NewTestPool(t)
 	store := v1alpha1store.NewStore(pool, v1alpha1store.TestSchema(), "agents")
@@ -122,7 +123,12 @@ func TestApply_RefusesADeletedTagBeforeHoldingOrDryRunning(t *testing.T) {
 		Stores:      map[string]*v1alpha1store.Store{v1alpha1.KindAgent: store},
 		Authorizers: map[string]func(context.Context, resource.AuthorizeInput) error{v1alpha1.KindAgent: authorize},
 		Approvals:   st,
+		Resolver:    func(context.Context, v1alpha1.ResourceRef) error { return v1alpha1.ErrDanglingRef },
 	})
+	// withRef adds a reference the resolver above reports as dangling.
+	withRef := func(doc string) string {
+		return doc + "  mcpServers:\n    - kind: MCPServer\n      name: missing\n      tag: latest\n"
+	}
 	apply := func(query, body string) arv0.ApplyResult {
 		t.Helper()
 		resp := api.Post("/v0/apply"+query, "Content-Type: application/yaml", strings.NewReader(body))
@@ -138,10 +144,10 @@ func TestApply_RefusesADeletedTagBeforeHoldingOrDryRunning(t *testing.T) {
 	tests := []struct {
 		name, query, doc string
 	}{
-		{"held for approval", "", agentDoc("held", "")},
-		{"held for approval, explicit tag", "", agentDoc("held", "latest")},
-		{"dry run", "?dryRun=true", agentDoc("direct", "")},
-		{"applied directly", "", agentDoc("direct", "")},
+		{"held for approval", "", withRef(agentDoc("held", ""))},
+		{"held for approval, explicit tag", "", withRef(agentDoc("held", "latest"))},
+		{"dry run", "?dryRun=true", withRef(agentDoc("direct", ""))},
+		{"applied directly", "", withRef(agentDoc("direct", ""))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -152,8 +158,15 @@ func TestApply_RefusesADeletedTagBeforeHoldingOrDryRunning(t *testing.T) {
 	}
 	assert.Empty(t, st.inputs, "nothing is held for approval")
 
-	// A new tag is still held as usual.
-	got := apply("", agentDoc("held", "v2"))
+	// On a new tag the dangling reference is what fails.
+	got := apply("", withRef(agentDoc("held", "v2")))
+	assert.Equal(t, arv0.ApplyStatusFailed, got.Status)
+	assert.Contains(t, got.Error, "refs")
+	assert.NotContains(t, got.Error, "was deleted")
+	assert.Empty(t, st.inputs)
+
+	// Without it, a new tag is held as usual.
+	got = apply("", agentDoc("held", "v2"))
 	assert.Equal(t, arv0.ApplyStatusPendingApproval, got.Status)
 	require.Len(t, st.inputs, 1)
 }

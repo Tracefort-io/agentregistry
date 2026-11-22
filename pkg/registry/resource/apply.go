@@ -436,23 +436,23 @@ func stageForApproval(ctx context.Context, cfg ApplyConfig, store *v1alpha1store
 	return res, true
 }
 
-// checkBeforeHolding runs the checks obj would fail once approved. They run
-// on a copy: validation may canonicalize fields, and the held document must
-// stay the one whose hash the denial is bound to. A deleted tag fails too,
-// since versions are immutable; a nil store skips that check. err reports
-// that the checks could not run.
+// checkBeforeHolding runs the checks obj would fail once approved. A
+// deleted tag comes first: it can never be applied (versions are
+// immutable), whatever the other checks say; a nil store skips it. The
+// other checks run on a copy: validation may canonicalize fields, and the
+// held document must stay the one whose hash the denial is bound to. err
+// reports that the checks could not run.
 func checkBeforeHolding(ctx context.Context, cfg ApplyConfig, store *v1alpha1store.Store, obj v1alpha1.Object, meta v1alpha1.ObjectMeta) (*applyError, error) {
+	if store != nil {
+		if cae := refuseDeletedTag(ctx, store, meta); cae != nil {
+			return cae, nil
+		}
+	}
 	check, err := copyObject(obj)
 	if err != nil {
 		return nil, err
 	}
-	if cae := checkObject(ctx, check, cfg.Resolver, cfg.RegistryValidator); cae != nil {
-		return cae, nil
-	}
-	if store == nil {
-		return nil, nil
-	}
-	return refuseDeletedTag(ctx, store, meta), nil
+	return checkObject(ctx, check, cfg.Resolver, cfg.RegistryValidator), nil
 }
 
 // copyObject returns a deep copy of obj: its spec through the JSON encoding,

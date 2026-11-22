@@ -74,8 +74,8 @@ func (e *applyError) Error() string {
 // applyCore runs the shared upsert pipeline on a single
 // already-decoded, metadata-stamped object:
 //
-//	canonicalize metadata → authorize → validate → resolve refs →
-//	validate registries → prepare → admission
+//	canonicalize metadata → authorize → refuse a deleted tag → validate →
+//	resolve refs → validate registries → prepare → admission
 //
 // The admission implementation owns the final write result. The OSS default
 // ProductionAdmission maps dry-runs to ApplyStatusDryRun and real writes to
@@ -124,6 +124,15 @@ func applyPipeline(
 			Object: obj,
 		}); err != nil {
 			return types.AdmissionResult{}, &applyError{Stage: stageAuth, Err: err}
+		}
+	}
+
+	// A deleted tag can never be applied (versions are immutable), so it is
+	// refused before the checks below, which could only name something else
+	// to fix. This also covers dry runs.
+	if store != nil {
+		if ae := refuseDeletedTag(ctx, store, *meta); ae != nil {
+			return types.AdmissionResult{}, ae
 		}
 	}
 
@@ -219,13 +228,6 @@ func compensateAdmissionError(
 // run the per-kind post-upsert hook.
 func ProductionAdmission(ctx context.Context, in types.AdmissionInput) (types.AdmissionResult, error) {
 	if in.DryRun {
-		// A dry run reports what the write would do: an apply to a deleted
-		// tag fails.
-		if store, ok := in.Store.(*v1alpha1store.Store); ok && store != nil && in.Object != nil {
-			if ae := refuseDeletedTag(ctx, store, *in.Object.GetMetadata()); ae != nil {
-				return types.AdmissionResult{}, ae
-			}
-		}
 		return types.AdmissionResult{Status: arv0.ApplyStatusDryRun, Tag: in.Tag}, nil
 	}
 	store, ok := in.Store.(*v1alpha1store.Store)
@@ -430,8 +432,9 @@ func statusChangeFrom(ctx context.Context) v1alpha1store.StatusChange {
 }
 
 // refuseDeletedTag fails an apply to a tagged version that was deleted, as
-// the store's Upsert would: versions are immutable. It lets a dry run and a
-// change about to be held for approval report it before any write.
+// the store's Upsert would: versions are immutable. The apply pipeline and
+// the checks before a change is held run it first, so a dry run and a held
+// change report it before anything else.
 func refuseDeletedTag(ctx context.Context, store *v1alpha1store.Store, meta v1alpha1.ObjectMeta) *applyError {
 	deleted, err := store.TagDeleted(ctx, meta.Namespace, meta.Name, meta.Tag)
 	if err != nil {
