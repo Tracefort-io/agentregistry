@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Plus, RefreshCw, Trash2 } from "lucide-react"
-import { applyBatch, client, deleteBatch } from "@/lib/admin-api"
+import { client, deleteBatch } from "@/lib/admin-api"
 import { useCan, useCanRequest } from "@/lib/permissions"
 import { AdminItem, ApplyResult, deleteDocument, failedResults, pendingResults, RESOURCE_KINDS, ResourceKind, ResourceKindName, yamlBody } from "@/lib/resource-kinds"
+import { YamlApplyPanel } from "@/components/yaml-apply-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Textarea } from "@/components/ui/textarea"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DeleteConfirmationDialog } from "@/components/delete-confirmation-dialog"
 
 const LIST_LIMIT = 200
@@ -53,9 +53,7 @@ export function ResourceAdmin({ kindName }: { kindName: ResourceKindName }) {
   const [toDelete, setToDelete] = useState<AdminItem | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [adding, setAdding] = useState(false)
-  const [yaml, setYaml] = useState(kind.template)
   const [applying, setApplying] = useState(false)
-  const [applyErrors, setApplyErrors] = useState<ApplyResult[]>([])
 
   // Bumping reloads triggers a fetch; state is set only once it completes.
   const [reloads, setReloads] = useState(0)
@@ -94,34 +92,6 @@ export function ResourceAdmin({ kindName }: { kindName: ResourceKindName }) {
       toast.success(`Deleted ${itemLabel(toDelete)}`)
     }
     setToDelete(null)
-    load()
-  }
-
-  async function applyYaml() {
-    setApplying(true)
-    setApplyErrors([])
-    const { data, response } = await applyBatch({ body: yamlBody(yaml) })
-    setApplying(false)
-    const results = (data?.results ?? []) as ApplyResult[]
-    const failed = failedResults(results)
-    if (!response?.ok) {
-      setApplyErrors([{ name: kind.kind, status: "failed", error: `HTTP ${response?.status ?? "error"}` }])
-      return
-    }
-    if (failed.length > 0) {
-      setApplyErrors(failed)
-      return
-    }
-    const pending = pendingResults(results)
-    if (pending.length > 0) {
-      toast.info(`${pending.map((r) => `${r.kind ?? kind.kind} ${r.name}`).join(", ")} needs approval. It will be applied once approved; follow it under Approvals.`)
-    }
-    const applied = results.filter((r) => r.status !== "pending-approval")
-    if (applied.length > 0) {
-      toast.success(`Applied ${applied.map((r) => `${r.kind ?? kind.kind} ${r.name}: ${r.status}`).join(", ")}`)
-    }
-    setAdding(false)
-    setYaml(kind.template)
     load()
   }
 
@@ -213,28 +183,16 @@ export function ResourceAdmin({ kindName }: { kindName: ResourceKindName }) {
             <DialogTitle>Add {kind.kind}</DialogTitle>
             <DialogDescription>YAML in the arctl apply format. Several documents may be separated by ---.</DialogDescription>
           </DialogHeader>
-          <Textarea
-            value={yaml}
-            onChange={(e) => setYaml(e.target.value)}
-            className="min-h-[300px] font-mono text-xs"
-            spellCheck={false}
-            aria-label={`${kind.kind} YAML`}
+          <YamlApplyPanel
+            kind={kind.kind}
+            initialYaml={kind.template}
+            onCancel={() => setAdding(false)}
+            onApplied={() => {
+              setAdding(false)
+              load()
+            }}
+            onBusyChange={setApplying}
           />
-          {applyErrors.length > 0 && (
-            <ul className="space-y-1 text-sm text-destructive">
-              {applyErrors.map((r, i) => (
-                <li key={i}>{`${r.kind ?? kind.kind} ${r.name}: ${r.error ?? r.status}`}</li>
-              ))}
-            </ul>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAdding(false)} disabled={applying}>
-              Cancel
-            </Button>
-            <Button onClick={() => void applyYaml()} disabled={applying}>
-              {applying ? "Applying…" : "Apply"}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 

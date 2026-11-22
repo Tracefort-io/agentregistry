@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { YamlApplyPanel } from "@/components/yaml-apply-panel"
 import { createServerV0, PendingApprovalError, type ServerJson } from "@/lib/admin-api"
 import { isValidDNSSubdomain } from "@/lib/validators"
 import { Loader2, AlertCircle, Plus, Trash2 } from "lucide-react"
@@ -24,6 +26,30 @@ function isValidMCPPackageName(s: string): boolean {
 
 type OriginType = 'npm' | 'pypi' | 'oci'
 
+// MCP_SERVER_TEMPLATE is where the YAML view starts: a whole MCPServer
+// document, including what the form doesn't offer.
+export const MCP_SERVER_TEMPLATE = `apiVersion: ar.dev/v1alpha1
+kind: MCPServer
+metadata:
+  namespace: default
+  name: my-server
+  tag: 1.0.0
+spec:
+  title: My server
+  description: What this server does
+  source:
+    package:
+      origin:
+        type: oci
+        identifier: registry.example.com/team/my-server:1.0.0
+        oci:
+          serverName: io.example/my-server
+      transport:
+        type: http
+        port: 8080
+        path: /mcp
+`
+
 interface AddServerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -32,6 +58,8 @@ interface AddServerDialogProps {
 
 export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServerDialogProps) {
   const [loading, setLoading] = useState(false)
+  // mode is the Form or YAML view; YAML takes a whole MCPServer document.
+  const [mode, setMode] = useState("form")
 
   // Form fields
   const [schema, setSchema] = useState("2025-10-17")
@@ -44,7 +72,7 @@ export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServer
   // the new polymorphic MCPPackage shape: origin.type drives which
   // per-type sub-object (npm / pypi / oci) is populated. `version` is
   // ignored for OCI (the version lives in the image ref's tag).
-  type PackageDraft = { identifier: string; version: string; originType: OriginType; transport: string; port: string; serverName: string }
+  type PackageDraft = { identifier: string; version: string; originType: OriginType; transport: string; port: string; path: string; serverName: string }
   const [pkg, setPkg] = useState<PackageDraft | null>(null)
 
   const resetForm = () => {
@@ -116,6 +144,14 @@ export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServer
             throw new Error('http transport requires a port between 1 and 65535')
           }
           transport.port = port
+          // The endpoint path is optional; the runtime's default applies without one.
+          const path = pkg.path.trim()
+          if (path) {
+            if (!path.startsWith('/')) {
+              throw new Error('http transport path must start with /, for example /mcp')
+            }
+            transport.path = path
+          }
         }
         source.package = {
           origin,
@@ -150,7 +186,7 @@ export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServer
   }
 
   const addPackage = () => {
-    setPkg({ identifier: "", version: "", originType: "npm", transport: "stdio", port: "3000", serverName: "" })
+    setPkg({ identifier: "", version: "", originType: "npm", transport: "stdio", port: "3000", path: "", serverName: "" })
   }
 
   const removePackage = () => {
@@ -180,6 +216,28 @@ export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServer
           </DialogDescription>
         </DialogHeader>
 
+        <Tabs value={mode} onValueChange={setMode}>
+          <TabsList>
+            <TabsTrigger value="form">Form</TabsTrigger>
+            <TabsTrigger value="yaml">YAML</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="yaml" className="pt-4">
+            <p className="text-sm text-muted-foreground mb-2">
+              YAML in the arctl apply format. Several documents may be separated by ---.
+            </p>
+            <YamlApplyPanel
+              kind="MCPServer"
+              initialYaml={MCP_SERVER_TEMPLATE}
+              onCancel={() => onOpenChange(false)}
+              onApplied={() => {
+                onOpenChange(false)
+                onServerAdded()
+              }}
+            />
+          </TabsContent>
+
+          <TabsContent value="form">
         <div className="space-y-4 py-4">
           {/* Basic Information */}
           <div className="grid grid-cols-3 gap-4">
@@ -317,6 +375,17 @@ export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServer
                         disabled={loading}
                         className="w-24"
                       />
+                      <Label htmlFor="package-path" className="text-sm text-muted-foreground ml-2">
+                        Path:
+                      </Label>
+                      <Input
+                        id="package-path"
+                        placeholder="/mcp"
+                        value={pkg.path}
+                        onChange={(e) => updatePackage("path", e.target.value)}
+                        disabled={loading}
+                        className="w-32"
+                      />
                     </>
                   )}
                 </div>
@@ -373,6 +442,8 @@ export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServer
             Create Server
           </Button>
         </div>
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   )

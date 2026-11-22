@@ -129,4 +129,4 @@ Open:
 Registration gaps:
 
 - **Private npm and PyPI registries:** private OCI registries can be listed in `OCI_REGISTRIES` ([docs/declarative-cli.md](docs/declarative-cli.md)), but npm and PyPI packages are still checked only against npmjs.org and pypi.org, anonymously.
-- **UI form:** it can't register a remote (URL-only) server, environment variables, or a package's endpoint path. The Add Agent dialog is a placeholder.
+- **UI form:** the Add MCP Server form can't register a remote (URL-only) server or environment variables; its YAML view can, since it applies a whole MCPServer document. The Add Agent dialog is a placeholder.
