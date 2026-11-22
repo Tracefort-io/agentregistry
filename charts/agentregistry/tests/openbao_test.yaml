@@ -64,6 +64,43 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts
           content: {name: openbao-ca, mountPath: /var/run/agentregistry/openbao/ca, readOnly: true}
 
+  - it: mounts the CA from an existing ConfigMap
+    template: deployment.yaml
+    set:
+      secretStore:
+        type: OpenBao
+        openbao:
+          address: https://openbao:8200
+          caConfigMapRef: {name: internal-ca}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_REGISTRY_OPENBAO_CA_CERT_FILE, value: /var/run/agentregistry/openbao/ca/ca.crt}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: openbao-ca
+            configMap:
+              name: internal-ca
+              items:
+                - {key: ca.crt, path: ca.crt}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: openbao-ca, mountPath: /var/run/agentregistry/openbao/ca, readOnly: true}
+
+  - it: rejects a CA from both a ConfigMap and a Secret
+    template: validate.yaml
+    set:
+      secretStore:
+        type: OpenBao
+        openbao:
+          address: https://openbao:8200
+          caConfigMapRef: {name: internal-ca}
+          caSecretRef: {name: openbao-ca}
+    asserts:
+      - failedTemplate:
+          errorPattern: caConfigMapRef or secretStore.openbao.caSecretRef, not both
+
   - it: migrates from the Kubernetes store
     template: deployment.yaml
     set:

@@ -189,7 +189,7 @@ spec:
             - name: AGENT_REGISTRY_OPENBAO_TOKEN_FILE
               value: /var/run/agentregistry/openbao/token/token
             {{- end }}
-            {{- if .caSecretRef.name }}
+            {{- if or .caConfigMapRef.name .caSecretRef.name }}
             - name: AGENT_REGISTRY_OPENBAO_CA_CERT_FILE
               value: /var/run/agentregistry/openbao/ca/ca.crt
             {{- end }}
@@ -310,7 +310,7 @@ spec:
               mountPath: /var/run/agentregistry/openbao/token
               readOnly: true
             {{- end }}
-            {{- if .caSecretRef.name }}
+            {{- if or .caConfigMapRef.name .caSecretRef.name }}
             - name: openbao-ca
               mountPath: /var/run/agentregistry/openbao/ca
               readOnly: true
@@ -384,7 +384,14 @@ spec:
               - key: {{ .tokenSecretRef.key }}
                 path: token
         {{- end }}
-        {{- if .caSecretRef.name }}
+        {{- if .caConfigMapRef.name }}
+        - name: openbao-ca
+          configMap:
+            name: {{ .caConfigMapRef.name }}
+            items:
+              - key: {{ .caConfigMapRef.key }}
+                path: ca.crt
+        {{- else if .caSecretRef.name }}
         - name: openbao-ca
           secret:
             secretName: {{ .caSecretRef.name }}

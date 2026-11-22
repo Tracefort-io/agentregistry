@@ -294,6 +294,11 @@ secretStore:
     tokenSecretRef:
       name: ""
       key: token
+    # -- Existing ConfigMap with the CA certificate that signed OpenBao's TLS
+    # certificate. Set this or caSecretRef, not both.
+    caConfigMapRef:
+      name: ""
+      key: ca.crt
     # -- Existing Secret with the CA certificate that signed OpenBao's TLS certificate.
     caSecretRef:
       name: ""

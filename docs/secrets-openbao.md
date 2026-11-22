@@ -51,11 +51,14 @@ Store both values in a Kubernetes Secret (keys `role-id` and `secret-id`) and na
 secretStore:
   type: OpenBao
   openbao:
-    address: http://openbao.<namespace>.svc:8200   # https with caSecretRef in production
+    address: https://openbao.<namespace>.svc:8200
     auth: kubernetes
     role: agentregistry
     # mount: agentregistry
     # pathPrefix: secrets
+    # The CA that signed OpenBao's certificate, when it isn't publicly trusted:
+    # a ConfigMap (a CA certificate is public) or a Secret, not both.
+    # caConfigMapRef: {name: internal-ca, key: ca.crt}
     # caSecretRef: {name: openbao-ca, key: ca.crt}
 ```
 
@@ -70,7 +73,7 @@ secretStore:
 | `AGENT_REGISTRY_OPENBAO_ROLE` | `secretStore.openbao.role` | `agentregistry` |
 | `AGENT_REGISTRY_OPENBAO_APPROLE_ROLE_ID_FILE`, `_SECRET_ID_FILE` | from `appRoleSecretRef` | |
 | `AGENT_REGISTRY_OPENBAO_TOKEN_FILE` | from `tokenSecretRef` | |
-| `AGENT_REGISTRY_OPENBAO_CA_CERT_FILE` | from `caSecretRef` | system roots |
+| `AGENT_REGISTRY_OPENBAO_CA_CERT_FILE` | from `caConfigMapRef` or `caSecretRef` | system roots |
 | `AGENT_REGISTRY_OPENBAO_TIMEOUT` | `secretStore.openbao.timeout` | `10s` |
 
 At startup the registry logs in and reads a path that does not exist, and logs `OpenBao secret store ready`, or a warning with the cause. It starts either way, since OpenBao may come up later. Until OpenBao is reachable, applying or deleting a Secret, and anything that resolves a Secret's value, fails with an error naming OpenBao; the rest of the registry works.

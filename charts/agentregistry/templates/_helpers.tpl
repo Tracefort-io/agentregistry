@@ -453,6 +453,9 @@ Called from templates/validate.yaml so it fires during helm template/install.
 {{- if and (eq .auth "token") (not .tokenSecretRef.name) }}
 {{- $errors = append $errors "secretStore.openbao.auth=token needs secretStore.openbao.tokenSecretRef.name." }}
 {{- end }}
+{{- if and .caConfigMapRef.name .caSecretRef.name }}
+{{- $errors = append $errors "set secretStore.openbao.caConfigMapRef or secretStore.openbao.caSecretRef, not both." }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- if eq .Values.secretStore.type "Database" }}
