@@ -107,6 +107,32 @@ func (s *Store) ApplyPatchWithIdentityChange(ctx context.Context, namespace, nam
 	})
 }
 
+// RevokedIdentities returns which of prefixes were revoked. A revoked prefix
+// is never valid again, whatever else still names it.
+func (s *Store) RevokedIdentities(ctx context.Context, prefixes []string) (map[string]bool, error) {
+	if s.behavior != MutableObjectStore || !s.internalMeta {
+		return nil, errors.New("v1alpha1 store: identity events are only supported on stores with internal meta")
+	}
+	revoked := map[string]bool{}
+	if len(prefixes) == 0 {
+		return revoked, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		fmt.Sprintf(`SELECT spiffe_id_prefix FROM %s WHERE event='revoked' AND spiffe_id_prefix = ANY($1)`, s.identityEvents),
+		prefixes)
+	if err != nil {
+		return nil, fmt.Errorf("revoked identities: %w", err)
+	}
+	found, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("revoked identities: %w", err)
+	}
+	for _, prefix := range found {
+		revoked[prefix] = true
+	}
+	return revoked, nil
+}
+
 // IdentityHistory returns the identity events of a SPIFFE ID prefix, oldest
 // first: who held it, and from when until when.
 func (s *Store) IdentityHistory(ctx context.Context, spiffeIDPrefix string) ([]IdentityEvent, error) {

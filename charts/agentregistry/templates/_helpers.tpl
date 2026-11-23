@@ -430,8 +430,10 @@ Called from templates/validate.yaml so it fires during helm template/install.
 {{- $errors = append $errors (printf "secretStore.type must be \"Kubernetes\", \"Database\" or \"OpenBao\" (got %q)." .Values.secretStore.type) }}
 {{- end }}
 {{- with .Values.secretStore.migrateFrom }}
-{{- if not (has . (list "Kubernetes" "Database")) }}
-{{- $errors = append $errors (printf "secretStore.migrateFrom must be \"Kubernetes\" or \"Database\" (got %q)." .) }}
+{{- $toOrgNamespaces := and (eq . "OpenBao") (eq $.Values.secretStore.type "OpenBao") $.Values.secretStore.openbao.orgNamespacePrefix }}
+{{- if $toOrgNamespaces }}
+{{- else if not (has . (list "Kubernetes" "Database")) }}
+{{- $errors = append $errors (printf "secretStore.migrateFrom must be \"Kubernetes\" or \"Database\", or \"OpenBao\" with secretStore.openbao.orgNamespacePrefix (got %q)." .) }}
 {{- else if eq . $.Values.secretStore.type }}
 {{- $errors = append $errors "secretStore.migrateFrom must differ from secretStore.type." }}
 {{- end }}

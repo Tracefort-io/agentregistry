@@ -279,6 +279,11 @@ secretStore:
     mount: agentregistry
     # -- Payloads live under <mount>/data/<pathPrefix>/<namespace>/<name>.
     pathPrefix: secrets
+    # -- Keep each registry namespace's Secrets in its own OpenBao namespace,
+    # <orgNamespacePrefix><namespace> (e.g. org-), at
+    # <mount>/data/<pathPrefix>/<name>. With it, migrateFrom: OpenBao copies
+    # payloads from the single-namespace layout into the org namespaces.
+    orgNamespacePrefix: ""
     # -- "kubernetes" (the pod's service account), "approle" or "token".
     auth: kubernetes
     # -- Path of the auth method; empty for its default.

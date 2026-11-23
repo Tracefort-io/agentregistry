@@ -90,7 +90,7 @@ secretStore:
   migrateFrom: Kubernetes
 ```
 
-At startup the registry copies every Secret's payload that OpenBao does not have yet, reads each copy back to verify it, and logs a summary (`copied`, `already_present`, `missing_in_source`, `failed`). It never overwrites a value already in OpenBao and never deletes the originals; restarting retries failures. Once the summary shows no failures, remove `migrateFrom` and delete the old copies: the Kubernetes Secrets labelled `agentregistry.solo.io/managed-by=secret-store`, or the `secret_payloads` table's rows.
+At startup the registry copies every Secret's payload that OpenBao does not have yet, reads each copy back to verify it, and logs a summary (`copied`, `already_present`, `missing_in_source`, `failed`). It never overwrites a value already in OpenBao and never deletes the originals. Failed copies, for example while OpenBao is not reachable yet, are retried after 5 seconds, then at doubling intervals up to 5 minutes, until a pass has none. Once the summary shows no failures, remove `migrateFrom` and delete the old copies: the Kubernetes Secrets labelled `agentregistry.solo.io/managed-by=secret-store`, or the `secret_payloads` table's rows.
 
 ## 4. Check it
 
@@ -101,3 +101,34 @@ bao kv get -mount=agentregistry secrets/<namespace>/<name>
 ```
 
 To record every read and write, enable an OpenBao audit device (`bao audit enable file file_path=stdout`).
+
+## 5. One OpenBao namespace per organization
+
+With `secretStore.openbao.orgNamespacePrefix` (for example `org-`), the Secrets of each registry namespace live in their own OpenBao namespace, `<prefix><namespace>`, a child of `secretStore.openbao.namespace`, at `<mount>/data/<pathPrefix>/<name>`. Each organization's values are confined to its namespace: a policy written inside one cannot reach another namespace or the parent's mounts. The registry logs in in the parent namespace and needs, in each org namespace, the KV mount and a policy over it.
+
+To move existing values from the single-namespace layout, set `migrateFrom: OpenBao` together with `orgNamespacePrefix`. The registry copies each payload into its org namespace and verifies it, as in step 3; it never deletes the originals, so remove them once the summary shows no failures.
+
+### Credentials of MCP servers
+
+An MCP server can name the credential the gateway presents to it:
+
+```yaml
+spec:
+  credential:
+    secretRef: {name: crm-api, key: token}   # a Secret in the server's own namespace
+    header: Authorization                    # default
+    scheme: Bearer                           # optional
+```
+
+Agents never hold it. With org namespaces, the registry grants it to the workload identities (SPIFFE IDs) of the Deployments whose Agent lists the server, in the server's own namespace only: in the org namespace, a policy `mcp-<…>` that reads only that Secret, and a role of the same name on the JWT auth method at `AGENT_REGISTRY_OPENBAO_WORKLOAD_AUTH_MOUNT` (default `jwt-spiffe`), bound to JWT-SVIDs with audience `AGENT_REGISTRY_OPENBAO_WORKLOAD_AUDIENCE` (default `openbao`) whose subject starts with one of those identities. A login token from it lives 60 seconds and can be used once. The gateway logs in with the calling agent's JWT-SVID after authorizing a tool call and reads the credential; OpenBao refuses any identity the registry did not grant.
+
+The registry rebuilds the grants on every reconcile pass and after every identity change, and withdraws an identity's grants before its revocation is recorded; a revoked identity is never granted again. It writes, lists and deletes only policies and roles whose names start with `mcp-`, so its OpenBao policy in each org namespace needs:
+
+```hcl
+path "org-<org>/<mount>/*"                     { capabilities = ["create", "update", "read", "delete", "list"] }
+path "org-<org>/sys/policies/acl/mcp-*"        { capabilities = ["create", "update", "read", "delete"] }
+path "org-<org>/sys/policies/acl"              { capabilities = ["list"] }
+path "org-<org>/auth/jwt-spiffe/role/mcp-*"    { capabilities = ["create", "update", "read", "delete"] }
+path "org-<org>/auth/jwt-spiffe/role"          { capabilities = ["list"] }
+path "sys/namespaces"                          { capabilities = ["list"] }
+```

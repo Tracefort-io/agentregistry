@@ -171,6 +171,10 @@ spec:
               value: {{ .mount | quote }}
             - name: AGENT_REGISTRY_OPENBAO_PATH_PREFIX
               value: {{ .pathPrefix | quote }}
+            {{- with .orgNamespacePrefix }}
+            - name: AGENT_REGISTRY_OPENBAO_ORG_NAMESPACE_PREFIX
+              value: {{ . | quote }}
+            {{- end }}
             - name: AGENT_REGISTRY_OPENBAO_AUTH
               value: {{ .auth | quote }}
             - name: AGENT_REGISTRY_OPENBAO_AUTH_MOUNT

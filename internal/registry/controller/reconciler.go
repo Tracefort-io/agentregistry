@@ -372,11 +372,7 @@ func (c *DeploymentController) persistRemoveResult(ctx context.Context, deployme
 	}
 	namespace, name := deployment.Metadata.NamespaceOrDefault(), deployment.Metadata.Name
 	if deleting {
-		change := v1alpha1store.IdentityChange{Revoke: []string{deployment.InternalMeta.ActorSubject}}
-		if err := c.deploymentStore().ApplyPatchWithIdentityChange(ctx, namespace, name, patch, deployment.InternalMeta, change); err != nil {
-			return fmt.Errorf("persist remove result and revoke identity: %w", err)
-		}
-		return nil
+		return c.persistRevocation(ctx, deployment, patch)
 	}
 	if err := c.deploymentStore().ApplyPatch(ctx, namespace, name, "", patch); err != nil {
 		return fmt.Errorf("persist remove result: %w", err)

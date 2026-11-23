@@ -119,16 +119,28 @@ func (e *apiError) Unwrap() error {
 	return nil
 }
 
-// Do calls path with the client's token, logging in or renewing first when
-// needed. A 403 triggers one fresh login and retry, since OpenBao answers a
-// revoked or expired token with 403 too. out, when not nil, receives the
-// JSON response.
+// Do calls path in the client's namespace with its token, logging in or
+// renewing first when needed. A 403 triggers one fresh login and retry, since
+// OpenBao answers a revoked or expired token with 403 too. out, when not nil,
+// receives the JSON response.
 func (c *Client) Do(ctx context.Context, method, path string, in, out any) error {
+	return c.DoIn(ctx, "", method, path, in, out)
+}
+
+// DoIn is Do in child namespace child of the client's namespace (empty: the
+// client's own). The token stays the one obtained in the client's namespace,
+// which OpenBao accepts in its children; what it may do there is up to its
+// policies.
+func (c *Client) DoIn(ctx context.Context, child, method, path string, in, out any) error {
+	namespace, err := c.childNamespace(child)
+	if err != nil {
+		return err
+	}
 	token, err := c.currentToken(ctx)
 	if err != nil {
 		return err
 	}
-	err = c.raw(ctx, method, path, token, in, out)
+	err = c.raw(ctx, namespace, method, path, token, in, out)
 	if !errors.Is(err, ErrForbidden) {
 		return err
 	}
@@ -136,15 +148,28 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 	if token, err = c.currentToken(ctx); err != nil {
 		return err
 	}
-	return c.raw(ctx, method, path, token, in, out)
+	return c.raw(ctx, namespace, method, path, token, in, out)
 }
 
-// Unauthenticated calls path without a token (login endpoints).
+// Unauthenticated calls path without a token (login endpoints), in the
+// client's namespace.
 func (c *Client) Unauthenticated(ctx context.Context, method, path string, in, out any) error {
-	return c.raw(ctx, method, path, "", in, out)
+	return c.raw(ctx, c.namespace, method, path, "", in, out)
 }
 
-func (c *Client) raw(ctx context.Context, method, path, token string, in, out any) error {
+// childNamespace joins child to the client's namespace. A child is one
+// segment: it can name neither the parent nor a namespace elsewhere.
+func (c *Client) childNamespace(child string) (string, error) {
+	if child == "" {
+		return c.namespace, nil
+	}
+	if err := checkSegment(child); err != nil {
+		return "", fmt.Errorf("openbao: child namespace: %w", err)
+	}
+	return join(strings.Trim(c.namespace, "/"), child), nil
+}
+
+func (c *Client) raw(ctx context.Context, namespace, method, path, token string, in, out any) error {
 	var body io.Reader
 	if in != nil {
 		raw, err := json.Marshal(in)
@@ -163,8 +188,8 @@ func (c *Client) raw(ctx context.Context, method, path, token string, in, out an
 	if token != "" {
 		req.Header.Set("X-Vault-Token", token)
 	}
-	if c.namespace != "" {
-		req.Header.Set("X-Vault-Namespace", c.namespace)
+	if namespace != "" {
+		req.Header.Set("X-Vault-Namespace", namespace)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -223,7 +248,7 @@ func (c *Client) currentToken(ctx context.Context) (string, error) {
 
 func (c *Client) renewLocked(ctx context.Context) error {
 	var resp authResponse
-	if err := c.raw(ctx, http.MethodPost, "auth/token/renew-self", c.token, map[string]any{}, &resp); err != nil {
+	if err := c.raw(ctx, c.namespace, http.MethodPost, "auth/token/renew-self", c.token, map[string]any{}, &resp); err != nil {
 		return err
 	}
 	c.setLocked(resp.login(), c.now())

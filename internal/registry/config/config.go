@@ -31,6 +31,18 @@ type Config struct {
 	OpenBaoNamespace  string `env:"OPENBAO_NAMESPACE" envDefault:""`
 	OpenBaoMount      string `env:"OPENBAO_MOUNT" envDefault:"agentregistry"`
 	OpenBaoPathPrefix string `env:"OPENBAO_PATH_PREFIX" envDefault:"secrets"`
+	// OpenBaoOrgNamespacePrefix, when set, keeps each registry namespace's
+	// Secrets in its own OpenBao namespace, <prefix><namespace> (a child of
+	// OpenBaoNamespace), at <OpenBaoMount>/data/<OpenBaoPathPrefix>/<name>.
+	// With it, SECRET_STORE_MIGRATE_FROM=OpenBao copies payloads from the
+	// single-namespace layout above into the org namespaces.
+	OpenBaoOrgNamespacePrefix string `env:"OPENBAO_ORG_NAMESPACE_PREFIX" envDefault:""`
+	// With org namespaces, the registry grants MCP server credentials to
+	// agents' workload identities: roles of the JWT auth method at
+	// OpenBaoWorkloadAuthMount in each org namespace, for JWT-SVIDs with
+	// audience OpenBaoWorkloadAudience.
+	OpenBaoWorkloadAuthMount string `env:"OPENBAO_WORKLOAD_AUTH_MOUNT" envDefault:"jwt-spiffe"`
+	OpenBaoWorkloadAudience  string `env:"OPENBAO_WORKLOAD_AUDIENCE" envDefault:"openbao"`
 	// OpenBaoAuth is "kubernetes" (the pod's service account), "approle" or
 	// "token" (a token file, for development).
 	OpenBaoAuth string `env:"OPENBAO_AUTH" envDefault:"kubernetes"`

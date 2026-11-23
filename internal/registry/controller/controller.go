@@ -57,6 +57,17 @@ type DeploymentController struct {
 	// reported after persistence; adapter and persistence failures are reported
 	// with their errors.
 	DeploymentApplied func(context.Context, types.ApplyInput, *types.ApplyResult, error)
+	// BeforeIdentityRevoked runs before a workload identity's revocation is
+	// recorded (the Deployment's deletion, or its move to another agent), to
+	// withdraw what the identity was granted; an error stops the revocation,
+	// which is retried.
+	BeforeIdentityRevoked func(ctx context.Context, prefix string) error
+	// AfterIdentityChanged runs after an identity assignment or revocation is
+	// recorded. Best effort: AfterRefresh repairs what it misses.
+	AfterIdentityChanged func(ctx context.Context)
+	// AfterRefresh runs after each full repair pass, while this process owns
+	// reconciliation, so state derived from Deployments is rebuilt.
+	AfterRefresh func(ctx context.Context)
 
 	mu         sync.RWMutex
 	checkpoint int64
@@ -193,6 +204,9 @@ func (c *DeploymentController) Run(ctx context.Context, resyncInterval time.Dura
 			return err
 		}
 	}
+	if c.AfterRefresh != nil {
+		c.AfterRefresh(ctx)
+	}
 	queue := c.workQueue()
 	defer queue.ShutDown()
 
@@ -221,6 +235,9 @@ func (c *DeploymentController) Run(ctx context.Context, resyncInterval time.Dura
 		case <-ticks:
 			if _, err := c.Refresh(ctx); err != nil {
 				return err
+			}
+			if c.AfterRefresh != nil {
+				c.AfterRefresh(ctx)
 			}
 		}
 	}

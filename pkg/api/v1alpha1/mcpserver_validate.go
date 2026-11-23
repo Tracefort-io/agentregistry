@@ -1,16 +1,64 @@
 package v1alpha1
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+)
 
 // Validate runs structural validation on the MCPServer envelope.
 func (m *MCPServer) Validate() error {
 	var errs FieldErrors
 	errs = append(errs, ValidateObjectMeta(m.Metadata)...)
 	errs = append(errs, validateMCPServerSpec(&m.Spec)...)
+	errs = append(errs, validateMCPCredential(m.Spec.Credential, m.Metadata.Namespace)...)
 	if len(errs) == 0 {
 		return nil
 	}
 	return errs
+}
+
+// credentialHeaderToken is an HTTP field name (RFC 9110 token).
+var credentialHeaderToken = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$")
+
+// forbiddenCredentialHeaders would change how the request is routed, framed
+// or attributed, rather than authenticate it.
+var forbiddenCredentialHeaders = []string{
+	"connection", "content-length", "cookie", "host", "keep-alive", "proxy-authorization",
+	"proxy-connection", "te", "trailer", "transfer-encoding", "upgrade",
+}
+
+func validateMCPCredential(c *MCPCredential, namespace string) FieldErrors {
+	var errs FieldErrors
+	if c == nil {
+		return errs
+	}
+	errs = append(errs, validateSecretKeyRef(c.SecretRef, "spec.credential.secretRef")...)
+	if c.SecretRef.Key == "" {
+		errs.Append("spec.credential.secretRef.key", fmt.Errorf("%w: the key holding the credential", ErrRequiredField))
+	}
+	if ns := c.SecretRef.Namespace; ns != "" && ns != namespaceOrDefault(namespace) {
+		errs.Append("spec.credential.secretRef.namespace", fmt.Errorf("%w: the Secret must be in the MCP server's own namespace", ErrInvalidRef))
+	}
+	if c.Header != "" {
+		if !credentialHeaderToken.MatchString(c.Header) {
+			errs.Append("spec.credential.header", fmt.Errorf("%w: %q is not an HTTP header name", ErrInvalidFormat, c.Header))
+		} else if slices.Contains(forbiddenCredentialHeaders, strings.ToLower(c.Header)) {
+			errs.Append("spec.credential.header", fmt.Errorf("%w: %s cannot carry a credential", ErrInvalidFormat, c.Header))
+		}
+	}
+	if c.Scheme != "" && !credentialHeaderToken.MatchString(c.Scheme) {
+		errs.Append("spec.credential.scheme", fmt.Errorf("%w: %q is not an auth scheme", ErrInvalidFormat, c.Scheme))
+	}
+	return errs
+}
+
+func namespaceOrDefault(namespace string) string {
+	if namespace == "" {
+		return DefaultNamespace
+	}
+	return namespace
 }
 
 // validateMCPPackageName enforces the upstream MCP-ecosystem catalogue name format

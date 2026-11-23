@@ -28,6 +28,34 @@ type MCPServerSpec struct {
 	// Remote declares a remote MCP server instead of a bundled one. These are pre-existing
 	// MCP servers that the registry does not deploy but can be referenced by Agents.
 	Remote *MCPRemote `json:"remote,omitempty" yaml:"remote,omitempty"`
+
+	// Credential is what the gateway presents to this MCP server on calls
+	// from agents. Agents never hold it: the gateway fetches it from the
+	// secret store after authorizing the call, and the store lets it do so
+	// only for agents that list this server.
+	Credential *MCPCredential `json:"credential,omitempty" yaml:"credential,omitempty"`
+}
+
+// MCPCredential names the credential of an MCP server and how it is sent.
+type MCPCredential struct {
+	// SecretRef is a key of a registry Secret in the MCP server's own
+	// namespace; a credential never crosses namespaces.
+	SecretRef SecretKeyRef `json:"secretRef" yaml:"secretRef"`
+	// Header carries the credential; defaults to Authorization.
+	Header string `json:"header,omitempty" yaml:"header,omitempty"`
+	// Scheme, when set, is sent before the credential, e.g. "Bearer".
+	Scheme string `json:"scheme,omitempty" yaml:"scheme,omitempty"`
+}
+
+// DefaultCredentialHeader is the header an MCPCredential uses by default.
+const DefaultCredentialHeader = "Authorization"
+
+// HeaderName is the header that carries the credential.
+func (c *MCPCredential) HeaderName() string {
+	if c == nil || c.Header == "" {
+		return DefaultCredentialHeader
+	}
+	return c.Header
 }
 
 // MCPRemote describes a pre-running remote MCP server that the registry

@@ -271,6 +271,49 @@ func TestDeploymentController_KeepsDeletedDeploymentWithIdentityUntilRuntimeIsBa
 	require.Equal(t, []string{v1alpha1store.IdentityAssigned, v1alpha1store.IdentityRevoked}, identityHistory(t, stores, prefix))
 }
 
+func TestDeploymentController_WithdrawsGrantsBeforeRecordingRevocation(t *testing.T) {
+	ctx := context.Background()
+	stores := newControllerTestStores(t)
+	seedAgent(t, stores, "credit", nil)
+	seedAgent(t, stores, "fraud", nil)
+	deployment := seedAgentDeployment(t, stores, "desk", "credit", v1alpha1.DesiredStateDeployed)
+	adapter := newPlanningAdapter(stores)
+	controller := newDeploymentTestController(stores, adapter)
+	var withdrawn []string
+	var changes int
+	controller.AfterIdentityChanged = func(context.Context) { changes++ }
+	controller.BeforeIdentityRevoked = func(_ context.Context, prefix string) error {
+		// The revocation isn't recorded yet when grants are withdrawn.
+		require.Equal(t, []string{v1alpha1store.IdentityAssigned}, identityHistory(t, stores, prefix))
+		withdrawn = append(withdrawn, prefix)
+		return nil
+	}
+	reconcileOnce(t, controller)
+	require.Equal(t, 1, changes, "assignment reported")
+	credit := agentPrefix("credit", deployment.Metadata.UID)
+
+	// Moving to another agent withdraws the old identity's grants first.
+	upsertAgentDeployment(t, stores, "desk", "fraud", v1alpha1.DesiredStateDeployed)
+	reconcileOnce(t, controller)
+	require.Equal(t, []string{credit}, withdrawn)
+	require.Equal(t, 2, changes)
+
+	// A failure to withdraw stops the revocation; it is retried.
+	controller.BeforeIdentityRevoked = func(context.Context, string) error { return errors.New("openbao unreachable") }
+	require.NoError(t, stores[v1alpha1.KindDeployment].Delete(ctx, "default", "desk", ""))
+	_, _, err := controller.reconcileKey(ctx, deploymentQueueKey{Namespace: "default", Name: "desk"})
+	require.ErrorContains(t, err, "withdraw grants")
+	fraud := agentPrefix("fraud", deployment.Metadata.UID)
+	require.Equal(t, []string{v1alpha1store.IdentityAssigned}, identityHistory(t, stores, fraud), "not revoked while grants may remain")
+
+	controller.BeforeIdentityRevoked = func(_ context.Context, prefix string) error { withdrawn = append(withdrawn, prefix); return nil }
+	_, _, err = controller.reconcileKey(ctx, deploymentQueueKey{Namespace: "default", Name: "desk"})
+	require.NoError(t, err)
+	require.Equal(t, []string{credit, fraud}, withdrawn)
+	require.Equal(t, []string{v1alpha1store.IdentityAssigned, v1alpha1store.IdentityRevoked}, identityHistory(t, stores, fraud))
+	require.Equal(t, 3, changes)
+}
+
 func TestDeploymentController_RefusesApplyWithUnplannedIdentity(t *testing.T) {
 	stores := newControllerTestStores(t)
 	seedAgent(t, stores, "credit", nil)

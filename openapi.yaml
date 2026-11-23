@@ -678,6 +678,18 @@ components:
       required:
       - type
       type: object
+    MCPCredential:
+      additionalProperties: false
+      properties:
+        header:
+          type: string
+        scheme:
+          type: string
+        secretRef:
+          $ref: '#/components/schemas/SecretKeyRef'
+      required:
+      - secretRef
+      type: object
     MCPKeyValueInput:
       additionalProperties: false
       properties:
@@ -862,6 +874,8 @@ components:
     MCPServerSpec:
       additionalProperties: false
       properties:
+        credential:
+          $ref: '#/components/schemas/MCPCredential'
         description:
           type: string
         iconUrl:
@@ -2133,6 +2147,13 @@ paths:
         required: true
         schema:
           type: string
+      - description: Return the version even if it was deleted.
+        explode: false
+        in: query
+        name: includeTerminating
+        schema:
+          description: Return the version even if it was deleted.
+          type: boolean
       responses:
         "200":
           content:
@@ -2607,6 +2628,13 @@ paths:
         required: true
         schema:
           type: string
+      - description: Return the version even if it was deleted.
+        explode: false
+        in: query
+        name: includeTerminating
+        schema:
+          description: Return the version even if it was deleted.
+          type: boolean
       responses:
         "200":
           content:
@@ -2837,6 +2865,13 @@ paths:
         required: true
         schema:
           type: string
+      - description: Return the version even if it was deleted.
+        explode: false
+        in: query
+        name: includeTerminating
+        schema:
+          description: Return the version even if it was deleted.
+          type: boolean
       responses:
         "200":
           content:
@@ -3055,6 +3090,13 @@ paths:
         required: true
         schema:
           type: string
+      - description: Return the version even if it was deleted.
+        explode: false
+        in: query
+        name: includeTerminating
+        schema:
+          description: Return the version even if it was deleted.
+          type: boolean
       responses:
         "200":
           content:
@@ -3253,6 +3295,13 @@ paths:
         required: true
         schema:
           type: string
+      - description: Return the version even if it was deleted.
+        explode: false
+        in: query
+        name: includeTerminating
+        schema:
+          description: Return the version even if it was deleted.
+          type: boolean
       responses:
         "200":
           content:
@@ -3775,6 +3824,13 @@ paths:
         required: true
         schema:
           type: string
+      - description: Return the version even if it was deleted.
+        explode: false
+        in: query
+        name: includeTerminating
+        schema:
+          description: Return the version even if it was deleted.
+          type: boolean
       responses:
         "200":
           content:

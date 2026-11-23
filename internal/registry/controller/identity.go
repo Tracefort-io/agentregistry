@@ -46,6 +46,11 @@ func (c *DeploymentController) assignIdentity(
 
 	change := v1alpha1store.IdentityChange{Assign: identityAssignment(input, plan)}
 	if current != "" {
+		if c.BeforeIdentityRevoked != nil {
+			if err := c.BeforeIdentityRevoked(ctx, current); err != nil {
+				return nil, false, fmt.Errorf("withdraw grants of %s: %w", current, err)
+			}
+		}
 		change.Revoke = []string{current}
 	}
 	meta := deployment.InternalMeta
@@ -73,6 +78,9 @@ func (c *DeploymentController) assignIdentity(
 		return nil, false, fmt.Errorf("record workload identity: %w", err)
 	}
 	deployment.InternalMeta = meta
+	if c.AfterIdentityChanged != nil {
+		c.AfterIdentityChanged(ctx)
+	}
 	return plan, false, nil
 }
 
@@ -94,6 +102,27 @@ func identityAssignment(input types.ApplyInput, plan *types.PlannedIdentity) *v1
 		event.RuntimeNamespace, event.RuntimeName = input.Runtime.Metadata.NamespaceOrDefault(), input.Runtime.Metadata.Name
 	}
 	return event
+}
+
+// persistRevocation records a deleted Deployment's teardown and revokes its
+// identity, in one transaction, after withdrawing what the identity was
+// granted.
+func (c *DeploymentController) persistRevocation(ctx context.Context, deployment *types.DeploymentRecord, patch v1alpha1store.PatchOpts) error {
+	prefix := deployment.InternalMeta.ActorSubject
+	if c.BeforeIdentityRevoked != nil {
+		if err := c.BeforeIdentityRevoked(ctx, prefix); err != nil {
+			return fmt.Errorf("withdraw grants of %s: %w", prefix, err)
+		}
+	}
+	change := v1alpha1store.IdentityChange{Revoke: []string{prefix}}
+	namespace, name := deployment.Metadata.NamespaceOrDefault(), deployment.Metadata.Name
+	if err := c.deploymentStore().ApplyPatchWithIdentityChange(ctx, namespace, name, patch, deployment.InternalMeta, change); err != nil {
+		return fmt.Errorf("persist remove result and revoke identity: %w", err)
+	}
+	if c.AfterIdentityChanged != nil {
+		c.AfterIdentityChanged(ctx)
+	}
+	return nil
 }
 
 // RuntimeUnavailableReason is the Ready=False reason of a deleted Deployment

@@ -114,6 +114,34 @@ tests:
           path: spec.template.spec.containers[0].env
           content: {name: AGENT_REGISTRY_SECRET_STORE_MIGRATE_FROM, value: Kubernetes}
 
+  - it: keeps each namespace's Secrets in its own OpenBao namespace
+    template: deployment.yaml
+    set:
+      secretStore:
+        type: OpenBao
+        migrateFrom: OpenBao
+        openbao:
+          address: https://openbao:8200
+          orgNamespacePrefix: org-
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_REGISTRY_OPENBAO_ORG_NAMESPACE_PREFIX, value: org-}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_REGISTRY_SECRET_STORE_MIGRATE_FROM, value: OpenBao}
+
+  - it: refuses migrating OpenBao to OpenBao without org namespaces
+    template: validate.yaml
+    set:
+      secretStore:
+        type: OpenBao
+        migrateFrom: OpenBao
+        openbao: {address: https://openbao:8200}
+    asserts:
+      - failedTemplate:
+          errorPattern: or "OpenBao" with secretStore.openbao.orgNamespacePrefix
+
   - it: sets no OpenBao settings for other stores
     template: deployment.yaml
     asserts:

@@ -17,12 +17,19 @@ import (
 const (
 	openBaoCheckTimeout = 15 * time.Second
 	migrationPageSize   = 200
+	// A migration pass with failures is run again after migrationRetryFirst,
+	// doubling up to migrationRetryMax: the stores may be unreachable for a
+	// while after the registry starts.
+	migrationRetryFirst = 5 * time.Second
+	migrationRetryMax   = 5 * time.Minute
 )
 
 // buildOpenBaoStore returns the OpenBao payload store and checks, without
 // failing startup, that it can log in and reach its mount: OpenBao may come
-// up after the registry, and Secret reads and writes report the cause.
-func buildOpenBaoStore(ctx context.Context, cfg *config.Config) (*openbao.Store, error) {
+// up after the registry, and Secret reads and writes report the cause. With
+// orgNamespacePrefix it keeps each registry namespace's Secrets in its own
+// OpenBao namespace; empty gives the single-namespace layout.
+func buildOpenBaoStore(ctx context.Context, cfg *config.Config, orgNamespacePrefix string) (*openbao.Store, error) {
 	httpClient, err := httpClientWithCA(cfg.OpenBaoTimeout, cfg.OpenBaoCACertFile, "OPENBAO_CA_CERT_FILE")
 	if err != nil {
 		return nil, err
@@ -43,7 +50,11 @@ func buildOpenBaoStore(ctx context.Context, cfg *config.Config) (*openbao.Store,
 	if err != nil {
 		return nil, err
 	}
-	store, err := openbao.New(client, cfg.OpenBaoMount, cfg.OpenBaoPathPrefix)
+	var options []openbao.Option
+	if orgNamespacePrefix != "" {
+		options = append(options, openbao.WithOrgNamespaces(orgNamespacePrefix))
+	}
+	store, err := openbao.New(client, cfg.OpenBaoMount, cfg.OpenBaoPathPrefix, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -52,9 +63,11 @@ func buildOpenBaoStore(ctx context.Context, cfg *config.Config) (*openbao.Store,
 	defer cancel()
 	if err := store.Check(checkCtx); err != nil {
 		slog.Warn("OpenBao secret store not usable yet; Secret values cannot be read or written until it is",
-			"address", cfg.OpenBaoAddr, "mount", cfg.OpenBaoMount, "auth", cfg.OpenBaoAuth, "error", err)
+			"address", cfg.OpenBaoAddr, "mount", cfg.OpenBaoMount, "auth", cfg.OpenBaoAuth,
+			"org_namespace_prefix", orgNamespacePrefix, "error", err)
 	} else {
-		slog.Info("OpenBao secret store ready", "address", cfg.OpenBaoAddr, "mount", cfg.OpenBaoMount, "prefix", cfg.OpenBaoPathPrefix)
+		slog.Info("OpenBao secret store ready", "address", cfg.OpenBaoAddr, "mount", cfg.OpenBaoMount, "prefix", cfg.OpenBaoPathPrefix,
+			"org_namespace_prefix", orgNamespacePrefix)
 	}
 	return store, nil
 }
@@ -121,6 +134,34 @@ func migrateSecretPayloads(ctx context.Context, secrets secretLister, from, to s
 			return res, nil
 		}
 		cursor = next
+	}
+}
+
+// migrateSecretPayloadsUntilDone runs migrateSecretPayloads until a pass
+// completes with no failures, waiting firstWait before the second pass and
+// doubling the wait up to maxWait. A failed read, write or list is retried
+// rather than treated as final: a pass copies nothing twice, so payloads
+// copied earlier count as present. It returns the last pass's result, or
+// the context's error when ctx ends first.
+func migrateSecretPayloadsUntilDone(ctx context.Context, secrets secretLister, from, to secret.Store, firstWait, maxWait time.Duration) (migrationResult, error) {
+	wait := firstWait
+	for pass := 1; ; pass++ {
+		res, err := migrateSecretPayloads(ctx, secrets, from, to)
+		if err == nil && res.Failed == 0 {
+			return res, nil
+		}
+		if ctx.Err() != nil {
+			return res, ctx.Err()
+		}
+		slog.Warn("secret migration pass did not finish; retrying",
+			"pass", pass, "copied", res.Copied, "already_present", res.Present, "missing_in_source", res.Missing,
+			"failed", res.Failed, "error", err, "retry_in", wait)
+		select {
+		case <-ctx.Done():
+			return res, ctx.Err()
+		case <-time.After(wait):
+		}
+		wait = min(2*wait, maxWait)
 	}
 }
 

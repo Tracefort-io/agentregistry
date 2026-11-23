@@ -3,8 +3,13 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"time"
 )
+
+// orgNamespacePrefix is a prefix that, followed by a registry namespace,
+// makes an OpenBao namespace name.
+var orgNamespacePrefix = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 
 // Validate performs runtime validations on the loaded configuration.
 func Validate(cfg *Config) error {
@@ -174,13 +179,8 @@ func validateLeaderElection(cfg *Config) error {
 // validateOpenBao checks the OpenBao secret store settings, and the
 // migration source, when SECRET_STORE is OpenBao.
 func validateOpenBao(cfg *Config) error {
-	if cfg.SecretStoreMigrateFrom != "" {
-		if cfg.SecretStore == "" || cfg.SecretStoreMigrateFrom == cfg.SecretStore {
-			return fmt.Errorf("SECRET_STORE_MIGRATE_FROM must name a store other than SECRET_STORE")
-		}
-		if cfg.SecretStoreMigrateFrom != "Kubernetes" && cfg.SecretStoreMigrateFrom != "Database" {
-			return fmt.Errorf("SECRET_STORE_MIGRATE_FROM must be Kubernetes or Database, got %q", cfg.SecretStoreMigrateFrom)
-		}
+	if err := validateMigrateFrom(cfg); err != nil {
+		return err
 	}
 	if cfg.SecretStore != "OpenBao" {
 		return nil
@@ -193,6 +193,9 @@ func validateOpenBao(cfg *Config) error {
 	}
 	if cfg.OpenBaoTimeout <= 0 {
 		return fmt.Errorf("OPENBAO_TIMEOUT must be positive")
+	}
+	if p := cfg.OpenBaoOrgNamespacePrefix; p != "" && !orgNamespacePrefix.MatchString(p) {
+		return fmt.Errorf("OPENBAO_ORG_NAMESPACE_PREFIX must be lowercase letters, digits and dashes, starting with a letter, got %q", p)
 	}
 	switch cfg.OpenBaoAuth {
 	case "kubernetes":
@@ -209,6 +212,22 @@ func validateOpenBao(cfg *Config) error {
 		}
 	default:
 		return fmt.Errorf("OPENBAO_AUTH must be kubernetes, approle or token, got %q", cfg.OpenBaoAuth)
+	}
+	return nil
+}
+
+// validateMigrateFrom checks the migration source: another store, or OpenBao
+// itself when moving payloads into org namespaces.
+func validateMigrateFrom(cfg *Config) error {
+	from := cfg.SecretStoreMigrateFrom
+	if from == "" || (from == "OpenBao" && cfg.SecretStore == "OpenBao" && cfg.OpenBaoOrgNamespacePrefix != "") {
+		return nil
+	}
+	if cfg.SecretStore == "" || from == cfg.SecretStore {
+		return fmt.Errorf("SECRET_STORE_MIGRATE_FROM must name a store other than SECRET_STORE, or be OpenBao with OPENBAO_ORG_NAMESPACE_PREFIX set")
+	}
+	if from != "Kubernetes" && from != "Database" {
+		return fmt.Errorf("SECRET_STORE_MIGRATE_FROM must be Kubernetes or Database, got %q", from)
 	}
 	return nil
 }

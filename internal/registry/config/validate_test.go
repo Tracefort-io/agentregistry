@@ -216,6 +216,12 @@ func TestValidate_OpenBao(t *testing.T) {
 		{"token without a file", bao(func(c *Config) { c.OpenBaoAuth = "token" }), true},
 		{"unknown auth", bao(func(c *Config) { c.OpenBaoAuth = "ldap" }), true},
 		{"migrate from itself", bao(func(c *Config) { c.SecretStoreMigrateFrom = "OpenBao" }), true},
+		{"migrate into org namespaces", bao(func(c *Config) {
+			c.SecretStoreMigrateFrom, c.OpenBaoOrgNamespacePrefix = "OpenBao", "org-"
+		}), false},
+		{"org namespace prefix", bao(func(c *Config) { c.OpenBaoOrgNamespacePrefix = "org-" }), false},
+		{"org namespace prefix with a slash", bao(func(c *Config) { c.OpenBaoOrgNamespacePrefix = "org/" }), true},
+		{"org namespace prefix in capitals", bao(func(c *Config) { c.OpenBaoOrgNamespacePrefix = "Org-" }), true},
 		{"migrate from unknown", bao(func(c *Config) { c.SecretStoreMigrateFrom = "S3" }), true},
 		{"migrate without a store", &Config{SecretStoreMigrateFrom: "Kubernetes"}, true},
 		{"other stores ignore OpenBao settings", &Config{SecretStore: "Kubernetes"}, false},

@@ -24,15 +24,17 @@ import (
 type fakeBao struct {
 	t *testing.T
 
-	mu       sync.Mutex
-	kv       map[string]map[string]any // path under the mount -> data
-	tokens   map[string]bool
-	next     int
-	logins   int
-	renewals int
-	ttl      int64
-	denied   string // a path prefix the policy refuses
-	headers  http.Header
+	mu     sync.Mutex
+	kv     map[string]map[string]any // "<namespace>|<path under the mount>" -> data
+	tokens map[string]bool
+	// loginNamespaces records the namespace of each login.
+	loginNamespaces []string
+	next            int
+	logins          int
+	renewals        int
+	ttl             int64
+	denied          string // a path prefix the policy refuses
+	headers         http.Header
 }
 
 func newFakeBao(t *testing.T) (*fakeBao, *httptest.Server) {
@@ -79,6 +81,7 @@ func (f *fakeBao) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.logins++
+		f.loginNamespaces = append(f.loginNamespaces, r.Header.Get("X-Vault-Namespace"))
 		reply(http.StatusOK, f.issue())
 		return
 	case "auth/approle/login":
@@ -107,7 +110,7 @@ func (f *fakeBao) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case strings.HasPrefix(path, "agentregistry/data/"):
-		key := strings.TrimPrefix(path, "agentregistry/data/")
+		key := r.Header.Get("X-Vault-Namespace") + "|" + strings.TrimPrefix(path, "agentregistry/data/")
 		switch r.Method {
 		case http.MethodPost:
 			data, _ := in["data"].(map[string]any)
@@ -122,7 +125,7 @@ func (f *fakeBao) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			reply(http.StatusOK, map[string]any{"data": map[string]any{"data": data}})
 		}
 	case strings.HasPrefix(path, "agentregistry/metadata/") && r.Method == http.MethodDelete:
-		delete(f.kv, strings.TrimPrefix(path, "agentregistry/metadata/"))
+		delete(f.kv, r.Header.Get("X-Vault-Namespace")+"|"+strings.TrimPrefix(path, "agentregistry/metadata/"))
 		reply(http.StatusNoContent, nil)
 	default:
 		reply(http.StatusNotFound, map[string]any{"errors": []string{"no handler for route"}})
@@ -161,7 +164,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, data, got)
 
-	stored := f.kv["secrets/team/llm"]
+	stored := f.kv["team-a|secrets/team/llm"]
 	assert.Equal(t, "czNjcjN0", stored["api-key"], "stored base64-encoded")
 	assert.Equal(t, "team-a", f.headers.Get("X-Vault-Namespace"))
 	assert.Equal(t, 1, f.logins, "one login, reused")
@@ -172,7 +175,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	require.NoError(t, s.Delete(ctx, "team", "llm"), "deleting a missing payload is not an error")
 
 	require.NoError(t, s.Put(ctx, "", "defaulted", data))
-	assert.Contains(t, f.kv, "secrets/default/defaulted", "an empty namespace is the default namespace")
+	assert.Contains(t, f.kv, "team-a|secrets/default/defaulted", "an empty namespace is the default namespace")
 }
 
 func TestStoreRejectsEscapingNames(t *testing.T) {
@@ -266,4 +269,56 @@ func TestNewClientValidation(t *testing.T) {
 	}
 	_, err := NewClient(ClientConfig{Address: "https://openbao:8200"})
 	require.Error(t, err, "auth is required")
+}
+
+func TestStoreOrgNamespaces(t *testing.T) {
+	f, srv := newFakeBao(t)
+	c, err := NewClient(ClientConfig{Address: srv.URL, Namespace: "team-a", Auth: k8sAuth(t)})
+	require.NoError(t, err)
+	s, err := New(c, "agentregistry", "secrets", WithOrgNamespaces("org-"))
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	data := map[string][]byte{"token": []byte("t0k")}
+	require.NoError(t, s.Put(ctx, "acme", "crm", data))
+	require.NoError(t, s.Put(ctx, "", "crm", map[string][]byte{"token": []byte("other")}))
+
+	assert.Contains(t, f.kv, "team-a/org-acme|secrets/crm", "acme's Secret lives in its own namespace, without a namespace segment")
+	assert.Contains(t, f.kv, "team-a/org-default|secrets/crm", "the default namespace is an org too")
+	got, err := s.Get(ctx, "acme", "crm")
+	require.NoError(t, err)
+	assert.Equal(t, data, got, "orgs don't see each other's Secret of the same name")
+	assert.Equal(t, []string{"team-a"}, f.loginNamespaces, "the login stays in the client's namespace")
+
+	assert.Equal(t, "org-acme", s.OrgNamespace("acme"))
+	assert.Equal(t, "org-default", s.OrgNamespace(""))
+	path, err := s.PayloadPath("acme", "crm")
+	require.NoError(t, err)
+	assert.Equal(t, "agentregistry/data/secrets/crm", path, "what a policy in org-acme names")
+
+	require.NoError(t, s.Delete(ctx, "acme", "crm"))
+	_, err = s.Get(ctx, "acme", "crm")
+	require.ErrorIs(t, err, secret.ErrPayloadNotFound)
+	_, err = s.Get(ctx, "default", "crm")
+	require.NoError(t, err, "deleting acme's Secret leaves default's alone")
+
+	require.NoError(t, s.Check(ctx))
+}
+
+func TestStoreOrgNamespaceValidation(t *testing.T) {
+	_, srv := newFakeBao(t)
+	c, err := NewClient(ClientConfig{Address: srv.URL, Auth: k8sAuth(t)})
+	require.NoError(t, err)
+	for _, prefix := range []string{"", "org/", "../", "a b"} {
+		_, err := New(c, "agentregistry", "secrets", WithOrgNamespaces(prefix))
+		require.Error(t, err, "prefix %q", prefix)
+	}
+	s, err := New(c, "agentregistry", "secrets", WithOrgNamespaces("org-"))
+	require.NoError(t, err)
+	for _, namespace := range []string{"..", "a/b"} {
+		require.Error(t, s.Put(context.Background(), namespace, "x", map[string][]byte{"k": nil}), "namespace %q", namespace)
+	}
+	plain, err := New(c, "agentregistry", "secrets")
+	require.NoError(t, err)
+	assert.Empty(t, plain.OrgNamespace("acme"), "without org namespaces there is none")
 }

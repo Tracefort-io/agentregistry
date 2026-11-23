@@ -58,6 +58,11 @@ type ControllerConfig struct {
 	DeploymentFinalized func(context.Context, *v1alpha1.Deployment)
 	// DeploymentApplied reports completed apply attempts to lifecycle observers.
 	DeploymentApplied func(context.Context, types.ApplyInput, *types.ApplyResult, error)
+	// BeforeIdentityRevoked, AfterIdentityChanged and AfterRefresh: see
+	// DeploymentController.
+	BeforeIdentityRevoked func(context.Context, string) error
+	AfterIdentityChanged  func(context.Context)
+	AfterRefresh          func(context.Context)
 }
 
 // StartDeploymentController constructs the Deployment controller, runs the
@@ -126,13 +131,16 @@ func startDeploymentControllerTerm(
 	generationCtx, cancelGeneration := context.WithCancel(ctx)
 	controlPlaneEventStore := v1alpha1store.NewControlPlaneEventStore(pool, pkgdb.MustNewSchema(pkgdb.OSSSchema))
 	controller := &DeploymentController{
-		Stores:              stores,
-		Adapters:            adapters,
-		Getter:              internaldb.NewGetter(stores),
-		Events:              controlPlaneEventStore,
-		DependencyKinds:     config.DependencyKinds,
-		DeploymentFinalized: config.DeploymentFinalized,
-		DeploymentApplied:   config.DeploymentApplied,
+		Stores:                stores,
+		Adapters:              adapters,
+		Getter:                internaldb.NewGetter(stores),
+		Events:                controlPlaneEventStore,
+		DependencyKinds:       config.DependencyKinds,
+		DeploymentFinalized:   config.DeploymentFinalized,
+		DeploymentApplied:     config.DeploymentApplied,
+		BeforeIdentityRevoked: config.BeforeIdentityRevoked,
+		AfterIdentityChanged:  config.AfterIdentityChanged,
+		AfterRefresh:          config.AfterRefresh,
 	}
 	if _, err := controller.Refresh(generationCtx); err != nil {
 		cancelGeneration()

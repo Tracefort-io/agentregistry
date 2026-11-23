@@ -148,6 +148,9 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 	controllerConfig.DependencyKinds = maps.Clone(options.DeploymentDependencyKinds)
 	controllerConfig.DeploymentFinalized = options.DeploymentFinalized
 	controllerConfig.DeploymentApplied = options.DeploymentApplied
+	if err := wireCredentialGrants(cfg, secretStore, stores, &controllerConfig); err != nil {
+		return err
+	}
 
 	// The Plugin controller resolves each plugin's pinned source pointer to a
 	// concrete commit/digest and records the manifest/inventory in PluginStatus
@@ -412,34 +415,41 @@ func secretStoreOfType(ctx context.Context, cfg *config.Config, pool *pgxpool.Po
 		}
 		return secretkubernetes.New(client.CoreV1(), cfg.SecretStoreNamespace), nil
 	case secret.StoreTypeOpenBao:
-		return buildOpenBaoStore(ctx, cfg)
+		return buildOpenBaoStore(ctx, cfg, cfg.OpenBaoOrgNamespacePrefix)
 	default:
 		return nil, fmt.Errorf("unknown SECRET_STORE %q (want Database, Kubernetes or OpenBao)", storeType)
 	}
 }
 
 // startSecretMigration copies payloads missing from the configured store
-// from SECRET_STORE_MIGRATE_FROM, in the background.
+// from SECRET_STORE_MIGRATE_FROM, in the background, retrying until every
+// Secret is copied or present.
 func startSecretMigration(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, secrets secretLister, target secret.Store) error {
 	if cfg.SecretStoreMigrateFrom == "" || target == nil || secrets == nil {
 		return nil
 	}
-	source, err := secretStoreOfType(ctx, cfg, pool, secret.StoreType(cfg.SecretStoreMigrateFrom))
+	var source secret.Store
+	var err error
+	if cfg.SecretStoreMigrateFrom == cfg.SecretStore {
+		// OpenBao into org namespaces: the source is the single-namespace
+		// layout of the same OpenBao.
+		source, err = buildOpenBaoStore(ctx, cfg, "")
+	} else {
+		source, err = secretStoreOfType(ctx, cfg, pool, secret.StoreType(cfg.SecretStoreMigrateFrom))
+	}
 	if err != nil {
 		return fmt.Errorf("SECRET_STORE_MIGRATE_FROM: %w", err)
 	}
 	go func() {
-		res, err := migrateSecretPayloads(auth.WithSystemContext(ctx), secrets, source, target)
+		res, err := migrateSecretPayloadsUntilDone(auth.WithSystemContext(ctx), secrets, source, target,
+			migrationRetryFirst, migrationRetryMax)
 		log := slog.With("from", cfg.SecretStoreMigrateFrom, "to", cfg.SecretStore,
 			"copied", res.Copied, "already_present", res.Present, "missing_in_source", res.Missing, "failed", res.Failed)
-		switch {
-		case err != nil:
-			log.Error("secret migration stopped", "error", err)
-		case res.Failed > 0:
-			log.Error("secret migration finished with failures; restart to retry them")
-		default:
-			log.Info("secret migration finished; the originals are still in the source store")
+		if err != nil {
+			log.Warn("secret migration stopped before it finished", "error", err)
+			return
 		}
+		log.Info("secret migration finished; the originals are still in the source store")
 	}()
 	return nil
 }

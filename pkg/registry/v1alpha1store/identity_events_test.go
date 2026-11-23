@@ -102,6 +102,27 @@ func TestIdentityEvents_RevocationCopiesAssignmentAndHappensOnce(t *testing.T) {
 	require.Empty(t, events(t, store, unknown))
 }
 
+func TestIdentityEvents_RevokedIdentities(t *testing.T) {
+	store, uid := identityStore(t)
+	ctx := context.Background()
+	other := "spiffe://test.example/org/default/agent/credit/deployment/other/"
+	meta := registrytypes.DeploymentInternalMeta{ActorSubject: testPrefix}
+	require.NoError(t, store.ApplyPatchWithIdentityChange(ctx, testNS, "desk", PatchOpts{}, meta, IdentityChange{Assign: assignment(testPrefix, uid)}))
+
+	revoked, err := store.RevokedIdentities(ctx, []string{testPrefix, other})
+	require.NoError(t, err)
+	require.Empty(t, revoked, "assigned is not revoked")
+
+	require.NoError(t, store.ApplyPatchWithIdentityChange(ctx, testNS, "desk", PatchOpts{}, meta, IdentityChange{Revoke: []string{testPrefix}}))
+	revoked, err = store.RevokedIdentities(ctx, []string{testPrefix, other})
+	require.NoError(t, err)
+	require.Equal(t, map[string]bool{testPrefix: true}, revoked)
+
+	revoked, err = store.RevokedIdentities(ctx, nil)
+	require.NoError(t, err)
+	require.Empty(t, revoked)
+}
+
 func TestIdentityEvents_AppendOnly(t *testing.T) {
 	store, uid := identityStore(t)
 	ctx := context.Background()
