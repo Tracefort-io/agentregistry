@@ -1,0 +1,61 @@
+{{- if and .Values.rbac.enabled .Values.rbac.workloadRuntime.enabled -}}
+{{/*
+What the KubernetesWorkload runtime creates for a Deployment of an Agent: a
+NetworkPolicy, a ServiceAccount and a Deployment, plus reading the pods'
+status and logs. The chart does not bind it anywhere: whoever onboards an
+org binds it, with a RoleBinding in that org's namespace, to the registry's
+ServiceAccount, so the registry can write only in org namespaces.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "agentregistry.fullname" . }}-workload-runtime-{{ .Release.Namespace }}
+  labels:
+    {{- include "agentregistry.labels" . | nindent 4 }}
+  {{- $annotations := include "agentregistry.annotations" (dict "annotations" dict "context" $) }}
+  {{- if $annotations }}
+  annotations:
+    {{- $annotations | nindent 4 }}
+  {{- end }}
+rules:
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    verbs:
+      - get
+      - create
+      - update
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts
+    verbs:
+      - get
+      - create
+      - update
+      - delete
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - create
+      - update
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - pods/log
+    verbs:
+      - get
+{{- end }}

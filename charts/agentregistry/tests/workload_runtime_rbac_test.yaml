@@ -1,0 +1,41 @@
+suite: KubernetesWorkload runtime RBAC
+templates:
+  - workload-runtime-rbac.yaml
+
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when RBAC is off
+    set:
+      rbac: {enabled: false, workloadRuntime: {enabled: true}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders only an unbound ClusterRole
+    set:
+      rbac.workloadRuntime.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ClusterRole
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-agentregistry-workload-runtime-NAMESPACE
+
+  - it: grants only what the runtime creates and reads
+    set:
+      rbac.workloadRuntime.enabled: true
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [get, create, update, delete]}
+            - {apiGroups: [""], resources: [serviceaccounts], verbs: [get, create, update, delete]}
+            - {apiGroups: [apps], resources: [deployments], verbs: [get, create, update, delete]}
+            - {apiGroups: [""], resources: [pods], verbs: [get, list]}
+            - {apiGroups: [""], resources: [pods/log], verbs: [get]}

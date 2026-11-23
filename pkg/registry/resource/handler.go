@@ -700,6 +700,9 @@ func mapApplyErrorToHuma(ae *applyError, kind, ns, name, tag string) error {
 		if ae.NotFound {
 			return mapNotFound(ae.Err, kind, ns, name, tag)
 		}
+		if ae.Referenced {
+			return huma.Error409Conflict(referencedMessage(ae.Err))
+		}
 		return huma.Error500InternalServerError("delete "+kind, ae.Err)
 	case stagePostDelete:
 		return huma.Error500InternalServerError(kind+" post-delete", ae.Err)

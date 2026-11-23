@@ -520,6 +520,14 @@ rbac:
   # Set to one or more namespaces to create a Role in each and restrict access accordingly.
   # Note: read access to the cluster scoped APIs is always granted via ClusterRole regardless of this setting.
   watchedNamespaces: []
+  # -- The KubernetesWorkload runtime, which runs Agents as Kubernetes
+  # workloads with SPIFFE identities.
+  workloadRuntime:
+    # -- Create the ClusterRole `<fullname>-workload-runtime-<namespace>`
+    # with what the runtime creates (NetworkPolicies, ServiceAccounts,
+    # Deployments) and reads (pods, pod logs). The chart binds it nowhere:
+    # onboarding an org binds it with a RoleBinding in that org's namespace.
+    enabled: false
 
 # @section Database
 

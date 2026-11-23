@@ -242,6 +242,8 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 | priorityClassName | string | `""` | Priority class name for the Agent Registry pods |
 | rbac.enabled | bool | `true` | Enable RBAC resource creation |
 | rbac.watchedNamespaces | list | `[]` | Namespaces Agent Registry is permitted to manage resources in. Empty list grants cluster-wide access via ClusterRole (default). Set to one or more namespaces to create a Role in each and restrict access accordingly. Note: read access to the cluster scoped APIs is always granted via ClusterRole regardless of this setting. |
+| rbac.workloadRuntime | object | `{"enabled":false}` | The KubernetesWorkload runtime, which runs Agents as Kubernetes workloads with SPIFFE identities. |
+| rbac.workloadRuntime.enabled | bool | `false` | Create the ClusterRole `<fullname>-workload-runtime-<namespace>` with what the runtime creates (NetworkPolicies, ServiceAccounts, Deployments) and reads (pods, pod logs). The chart binds it nowhere: onboarding an org binds it with a RoleBinding in that org's namespace. |
 | readinessProbe.enabled | bool | `true` | Enable readiness probe |
 | readinessProbe.failureThreshold | int | `3` | Failure threshold for readiness check |
 | readinessProbe.initialDelaySeconds | int | `10` | Initial delay before readiness check |

@@ -33,6 +33,7 @@ import (
 	controller "github.com/agentregistry-dev/agentregistry/internal/registry/controller"
 	internaldb "github.com/agentregistry-dev/agentregistry/internal/registry/database"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/plugins/bundle"
+	kubernetesruntime "github.com/agentregistry-dev/agentregistry/internal/registry/runtimes/kubernetes"
 	microsoftruntime "github.com/agentregistry-dev/agentregistry/internal/registry/runtimes/microsoft"
 	deploymentsvc "github.com/agentregistry-dev/agentregistry/internal/registry/service/deployment"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/telemetry"
@@ -129,6 +130,10 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 	defaultKagentAdapter := kagent.New()
 	if _, ok := deploymentAdapters[kagent.RuntimeType]; !ok {
 		deploymentAdapters[kagent.RuntimeType] = defaultKagentAdapter
+	}
+	// Agents as Kubernetes workloads with per-replica SPIFFE identities.
+	if _, ok := deploymentAdapters[kubernetesruntime.RuntimeType]; !ok {
+		deploymentAdapters[kubernetesruntime.RuntimeType] = kubernetesruntime.New()
 	}
 	if _, ok := discoverySources[kagent.RuntimeType]; !ok {
 		discoverySources[kagent.RuntimeType] = defaultKagentAdapter.(types.DeploymentDiscoverySource)

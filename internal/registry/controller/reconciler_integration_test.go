@@ -451,8 +451,9 @@ func TestDeploymentController_DeleteFinalizesWhenRuntimeRefMissing(t *testing.T)
 	ctx := context.Background()
 	stores := newControllerTestStores(t)
 	seedMCPServer(t, stores, "weather")
-	deployment := seedDeployment(t, stores, "delete-missing-runtime", v1alpha1.DesiredStateDeployed)
-	require.NoError(t, stores[v1alpha1.KindRuntime].Delete(ctx, "default", "test-runtime", ""))
+	// A Runtime cannot be deleted while a Deployment uses it, so this
+	// Deployment's Runtime never existed.
+	deployment := seedDeploymentOnRuntime(t, stores, "delete-missing-runtime", "never-existed")
 	require.NoError(t, stores[v1alpha1.KindDeployment].Delete(ctx, "default", deployment.Metadata.Name, ""))
 
 	adapter := &recordingDeploymentAdapter{}
@@ -592,6 +593,19 @@ func seedDeployment(t *testing.T, stores map[string]*v1alpha1store.Store, name, 
 	_, err := stores[v1alpha1.KindDeployment].Upsert(context.Background(), deployment, v1alpha1store.UpsertOpts{
 		InitialFinalizers: []string{DeploymentControllerFinalizer},
 	})
+	require.NoError(t, err)
+	return loadDeployment(t, stores, name)
+}
+
+func seedDeploymentOnRuntime(t *testing.T, stores map[string]*v1alpha1store.Store, name, runtimeName string) *v1alpha1.Deployment {
+	t.Helper()
+	_, err := stores[v1alpha1.KindDeployment].Upsert(context.Background(), &v1alpha1.Deployment{
+		Metadata: v1alpha1.ObjectMeta{Namespace: "default", Name: name},
+		Spec: v1alpha1.DeploymentSpec{
+			TargetRef:  v1alpha1.ResourceRef{Kind: v1alpha1.KindMCPServer, Name: "weather", Tag: v1alpha1store.DefaultTag()},
+			RuntimeRef: v1alpha1.ResourceRef{Kind: v1alpha1.KindRuntime, Name: runtimeName},
+		},
+	}, v1alpha1store.UpsertOpts{InitialFinalizers: []string{DeploymentControllerFinalizer}})
 	require.NoError(t, err)
 	return loadDeployment(t, stores, name)
 }

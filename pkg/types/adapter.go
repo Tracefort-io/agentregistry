@@ -22,18 +22,18 @@ import (
 //     row; reconciler observes NOTIFY.
 //  2. reconciler calls DeploymentAdapter.Apply with the resolved
 //     Target + Runtime objects.
-//  3. Apply returns immediately with a Progressing condition. Adapter
-//     spawns its own watch loop to later PatchStatus with Ready=True
-//     when the workload converges.
+//  3. Apply returns immediately with a Progressing condition. Adapters
+//     implementing DeploymentStatusObserver report Ready=True when the
+//     workload converges; the controller persists it.
 //  4. on Deployment delete, Store.Delete sets DeletionTimestamp; the
 //     reconciler calls DeploymentAdapter.Remove for external-state
 //     teardown. Row lifetime is owned by soft-delete + GC, not by
 //     adapter-returned tokens — Remove is purely an external-state
 //     hook.
 //
-// Apply is ALWAYS ASYNC. Apply returns quickly; convergence is tracked
-// via the adapter's own watch loop writing status. The reconciler
-// doesn't block on convergence.
+// Apply is ALWAYS ASYNC. Apply returns quickly; adapters whose workloads
+// converge later implement DeploymentStatusObserver, and the controller
+// persists what it observes. The reconciler doesn't block on convergence.
 //
 // Adapters with expensive Apply paths can also implement
 // DeploymentDesiredFingerprinter to make unchanged reconciles cheap after the
@@ -158,6 +158,51 @@ type LogLine struct {
 	Timestamp time.Time
 	Stream    string // "stdout" | "stderr" | runtime-specific
 	Line      string
+}
+
+// DeploymentIdentityPlanner is an optional adapter capability for runtimes
+// that give a Deployment's workload a SPIFFE identity. Before Apply, the
+// controller asks for the identity Apply will give, records its assignment
+// (an identity is assigned once, ever, and never reused), and calls Apply
+// only once that succeeds, so no workload holds an identity the history
+// lacks. PlanIdentity must not call the runtime and must return what Apply
+// will put in DeploymentInternalMeta.ActorSubject; it returns nil when the
+// input gives no identity (Apply then reports why).
+type DeploymentIdentityPlanner interface {
+	PlanIdentity(ctx context.Context, in ApplyInput) (*PlannedIdentity, error)
+}
+
+// PlannedIdentity is the identity Apply will give a Deployment's workload.
+type PlannedIdentity struct {
+	// SPIFFEIDPrefix is shared by the workload's replicas; each replica's
+	// full ID extends it.
+	SPIFFEIDPrefix    string
+	WorkloadNamespace string
+	WorkloadName      string
+}
+
+// DeploymentStatusObserver is an optional adapter capability for runtimes
+// whose workloads converge after Apply returns. The Deployment controller
+// calls ObserveStatus on each reconcile of an applied, managed Deployment
+// whose desired input is unchanged (the resync pass, about once a minute),
+// and persists the returned conditions when they differ from the stored
+// ones. Implementers MUST NOT write to Deployment storage; the controller
+// stays the single writer.
+type DeploymentStatusObserver interface {
+	ObserveStatus(ctx context.Context, in ObserveInput) (*ObserveResult, error)
+}
+
+// ObserveInput carries an applied Deployment and its resolved Runtime.
+type ObserveInput struct {
+	Deployment *DeploymentRecord
+	Runtime    *v1alpha1.Runtime
+}
+
+// ObserveResult holds the conditions observed on the runtime. Conditions are
+// merged by Type; LastTransitionTime is kept while a condition's Status is
+// unchanged.
+type ObserveResult struct {
+	Conditions []v1alpha1.Condition
 }
 
 // DeploymentDiscoverySource is an optional adapter capability for runtimes

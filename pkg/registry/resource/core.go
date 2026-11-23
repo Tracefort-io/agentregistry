@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	arv0 "github.com/agentregistry-dev/agentregistry/pkg/api/v0"
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
@@ -65,10 +66,23 @@ type applyError struct {
 	// versions' immutability refuses (409).
 	TagDeleted bool
 	NotFound   bool
+	// Referenced marks a delete refused because other objects still use
+	// the object (a Runtime with Deployments), which is a conflict (409).
+	Referenced bool
 }
 
 func (e *applyError) Error() string {
 	return string(e.Stage) + ": " + e.Err.Error()
+}
+
+// referencedMessage explains a delete refused because the object is still
+// used: the database's message names the users. Delete them first.
+func referencedMessage(err error) string {
+	message := err.Error()
+	if _, detail, ok := strings.Cut(message, v1alpha1store.ErrReferenced.Error()+": "); ok {
+		message = detail
+	}
+	return message + "; delete them first"
 }
 
 // applyCore runs the shared upsert pipeline on a single
@@ -405,9 +419,10 @@ func ProductionDeleteAdmission(ctx context.Context, in types.DeleteAdmissionInpu
 	}
 	if err != nil {
 		return types.DeleteAdmissionResult{}, &applyError{
-			Stage:    stageDelete,
-			Err:      err,
-			NotFound: errors.Is(err, pkgdb.ErrNotFound),
+			Stage:      stageDelete,
+			Err:        err,
+			NotFound:   errors.Is(err, pkgdb.ErrNotFound),
+			Referenced: errors.Is(err, v1alpha1store.ErrReferenced),
 		}
 	}
 	if in.PostDelete != nil && in.Object != nil {

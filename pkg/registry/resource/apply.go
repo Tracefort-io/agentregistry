@@ -385,6 +385,8 @@ func failResult(res arv0.ApplyResult, ae *applyError) arv0.ApplyResult {
 	case stageDelete:
 		if ae.NotFound {
 			res.Error = fmt.Sprintf("not found: %s/%s", res.Namespace, res.Name)
+		} else if ae.Referenced {
+			res.Error = referencedMessage(ae.Err)
 		} else {
 			res.Error = "delete: " + ae.Err.Error()
 		}

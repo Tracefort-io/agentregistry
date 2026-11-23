@@ -105,9 +105,19 @@ func (c *DeploymentController) apply(ctx context.Context, deployment *types.Depl
 	if skip, err := shouldSkipApply(deployment, fingerprint, forceToken); err != nil {
 		return "", "", err
 	} else if skip {
-		return "unchanged", "deployment desired input unchanged", nil
+		return c.observe(ctx, adapter, deployment, runtime)
+	}
+	plan, blocked, err := c.assignIdentity(ctx, adapter, input)
+	if err != nil {
+		return "", "", err
+	}
+	if blocked {
+		return "blocked", "workload identity was assigned before", nil
 	}
 	result, err := adapter.Apply(ctx, input)
+	if err == nil {
+		err = checkAppliedIdentity(adapter, plan, result)
+	}
 	if err != nil {
 		if c.DeploymentApplied != nil {
 			c.DeploymentApplied(ctx, input, nil, err)
@@ -197,6 +207,12 @@ func (c *DeploymentController) handleRemoveRuntimeError(
 	}
 	if deployment.Metadata.DeletionTimestamp == nil {
 		return c.blockReference(ctx, deployment, cause)
+	}
+	if deployment.InternalMeta.ActorSubject != "" {
+		// Its workload holds an identity: finalizing without the runtime's
+		// teardown would leave it running, and its identity unrevoked, with
+		// no registry record. It stays terminating until the Runtime is back.
+		return c.blockRuntimeUnavailable(ctx, deployment)
 	}
 	if err := c.finalizeDeletedDeployment(ctx, deployment); err != nil {
 		return "", "", err
@@ -333,8 +349,13 @@ func deploymentStatusPatch(deployment *types.DeploymentRecord, result *types.App
 	})
 }
 
+// persistRemoveResult records the teardown. When the Deployment is being
+// deleted, its workload identity is revoked in the same transaction: the
+// prefix is never assigned again. An undeployed Deployment keeps its identity
+// for when it is deployed again.
 func (c *DeploymentController) persistRemoveResult(ctx context.Context, deployment *types.DeploymentRecord, result *types.RemoveResult) error {
-	if result == nil || len(result.Conditions) == 0 {
+	deleting := deployment.Metadata.DeletionTimestamp != nil && deployment.InternalMeta.ActorSubject != ""
+	if !deleting && (result == nil || len(result.Conditions) == 0) {
 		return nil
 	}
 	patch := v1alpha1store.PatchOpts{
@@ -342,12 +363,22 @@ func (c *DeploymentController) persistRemoveResult(ctx context.Context, deployme
 			if s.ObservedGeneration < deployment.Metadata.Generation {
 				s.ObservedGeneration = deployment.Metadata.Generation
 			}
-			for _, cond := range result.Conditions {
-				s.SetCondition(cond)
+			if result != nil {
+				for _, cond := range result.Conditions {
+					s.SetCondition(cond)
+				}
 			}
 		}),
 	}
-	if err := c.deploymentStore().ApplyPatch(ctx, deployment.Metadata.NamespaceOrDefault(), deployment.Metadata.Name, "", patch); err != nil {
+	namespace, name := deployment.Metadata.NamespaceOrDefault(), deployment.Metadata.Name
+	if deleting {
+		change := v1alpha1store.IdentityChange{Revoke: []string{deployment.InternalMeta.ActorSubject}}
+		if err := c.deploymentStore().ApplyPatchWithIdentityChange(ctx, namespace, name, patch, deployment.InternalMeta, change); err != nil {
+			return fmt.Errorf("persist remove result and revoke identity: %w", err)
+		}
+		return nil
+	}
+	if err := c.deploymentStore().ApplyPatch(ctx, namespace, name, "", patch); err != nil {
 		return fmt.Errorf("persist remove result: %w", err)
 	}
 	return nil

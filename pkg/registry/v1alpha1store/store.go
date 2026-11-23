@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -77,9 +78,12 @@ type Store struct {
 	qualified string
 	// events is the schema-qualified version_status_events table, where
 	// tagged-artifact stores append status changes.
-	events       string
-	behavior     StoreBehavior
-	internalMeta bool
+	events string
+	// identityEvents is the schema-qualified deployment_identity_events
+	// table (identity_events.go).
+	identityEvents string
+	behavior       StoreBehavior
+	internalMeta   bool
 }
 
 // StoreOption configures optional Store capabilities.
@@ -116,10 +120,11 @@ func NewStore(pool *pgxpool.Pool, schema pkgdb.Schema, table string) *Store {
 // namespace/name in schema.
 func NewMutableObjectStore(pool *pgxpool.Pool, schema pkgdb.Schema, table string, options ...StoreOption) *Store {
 	store := &Store{
-		pool:      pool,
-		table:     table,
-		qualified: schema.Qualify(table),
-		behavior:  MutableObjectStore,
+		pool:           pool,
+		table:          table,
+		qualified:      schema.Qualify(table),
+		identityEvents: schema.Qualify(deploymentIdentityEventsTable),
+		behavior:       MutableObjectStore,
 	}
 	for _, option := range options {
 		option(store)
@@ -519,75 +524,81 @@ func (s *Store) applyPatch(ctx context.Context, namespace, name, tag string, pat
 		return errors.New("v1alpha1 store: tag is required")
 	}
 	return runInTx(ctx, s.pool, func(tx pgx.Tx) error {
-		statusJSON, internalMetaJSON, annotationsJSON, finalizersJSON, err := s.loadPatchRow(ctx, tx, namespace, name, tag)
+		return s.applyPatchTx(ctx, tx, namespace, name, tag, patch, internalMeta)
+	})
+}
+
+// applyPatchTx is applyPatch inside the caller's transaction; callers check
+// the arguments first (applyPatch).
+func (s *Store) applyPatchTx(ctx context.Context, tx pgx.Tx, namespace, name, tag string, patch PatchOpts, internalMeta any) error {
+	statusJSON, internalMetaJSON, annotationsJSON, finalizersJSON, err := s.loadPatchRow(ctx, tx, namespace, name, tag)
+	if err != nil {
+		return err
+	}
+
+	setClauses := make([]string, 0, 4)
+	args := []any{namespace, name}
+	where := "namespace=$1 AND name=$2"
+	if s.behavior == TaggedArtifactStore {
+		args = append(args, tag)
+		where += " AND tag=$3"
+	}
+
+	// Columns whose mutator produced the value already stored are left out
+	// of the SET list; a patch that changes nothing skips the UPDATE
+	// entirely so periodic re-asserts (e.g. discovery status polls) don't
+	// churn updated_at, WAL, and audit surfaces.
+	if patch.Status != nil {
+		newJSON, err := buildStatusPatch(statusJSON, patch.Status)
 		if err != nil {
 			return err
 		}
-
-		setClauses := make([]string, 0, 4)
-		args := []any{namespace, name}
-		where := "namespace=$1 AND name=$2"
-		if s.behavior == TaggedArtifactStore {
-			args = append(args, tag)
-			where += " AND tag=$3"
+		if !equalSpecJSON(statusJSON, newJSON) {
+			args = append(args, newJSON)
+			setClauses = append(setClauses, fmt.Sprintf("status=$%d", len(args)))
 		}
-
-		// Columns whose mutator produced the value already stored are left out
-		// of the SET list; a patch that changes nothing skips the UPDATE
-		// entirely so periodic re-asserts (e.g. discovery status polls) don't
-		// churn updated_at, WAL, and audit surfaces.
-		if patch.Status != nil {
-			newJSON, err := buildStatusPatch(statusJSON, patch.Status)
-			if err != nil {
-				return err
-			}
-			if !equalSpecJSON(statusJSON, newJSON) {
-				args = append(args, newJSON)
-				setClauses = append(setClauses, fmt.Sprintf("status=$%d", len(args)))
-			}
+	}
+	if internalMeta != nil {
+		newJSON, err := json.Marshal(internalMeta)
+		if err != nil {
+			return fmt.Errorf("encode internal meta: %w", err)
 		}
-		if internalMeta != nil {
-			newJSON, err := json.Marshal(internalMeta)
-			if err != nil {
-				return fmt.Errorf("encode internal meta: %w", err)
-			}
-			if !equalSpecJSON(internalMetaJSON, newJSON) {
-				args = append(args, newJSON)
-				setClauses = append(setClauses, fmt.Sprintf("internal_meta=$%d", len(args)))
-			}
+		if !equalSpecJSON(internalMetaJSON, newJSON) {
+			args = append(args, newJSON)
+			setClauses = append(setClauses, fmt.Sprintf("internal_meta=$%d", len(args)))
 		}
-		if patch.Annotations != nil {
-			newJSON, err := buildAnnotationsPatch(annotationsJSON, patch.Annotations)
-			if err != nil {
-				return err
-			}
-			if !equalJSONMap(annotationsJSON, newJSON) {
-				args = append(args, newJSON)
-				setClauses = append(setClauses, fmt.Sprintf("annotations=$%d", len(args)))
-			}
+	}
+	if patch.Annotations != nil {
+		newJSON, err := buildAnnotationsPatch(annotationsJSON, patch.Annotations)
+		if err != nil {
+			return err
 		}
-		if patch.Finalizers != nil {
-			newJSON, err := buildFinalizersPatch(finalizersJSON, patch.Finalizers)
-			if err != nil {
-				return err
-			}
-			if !equalSpecJSON(finalizersJSON, newJSON) {
-				args = append(args, newJSON)
-				setClauses = append(setClauses, fmt.Sprintf("finalizers=$%d", len(args)))
-			}
+		if !equalJSONMap(annotationsJSON, newJSON) {
+			args = append(args, newJSON)
+			setClauses = append(setClauses, fmt.Sprintf("annotations=$%d", len(args)))
 		}
-		if len(setClauses) == 0 {
-			return nil
+	}
+	if patch.Finalizers != nil {
+		newJSON, err := buildFinalizersPatch(finalizersJSON, patch.Finalizers)
+		if err != nil {
+			return err
 		}
-
-		if _, err := tx.Exec(ctx,
-			fmt.Sprintf(`UPDATE %s SET %s WHERE %s`,
-				s.qualified, strings.Join(setClauses, ", "), where),
-			args...); err != nil {
-			return fmt.Errorf("apply patch: %w", err)
+		if !equalSpecJSON(finalizersJSON, newJSON) {
+			args = append(args, newJSON)
+			setClauses = append(setClauses, fmt.Sprintf("finalizers=$%d", len(args)))
 		}
+	}
+	if len(setClauses) == 0 {
 		return nil
-	})
+	}
+
+	if _, err := tx.Exec(ctx,
+		fmt.Sprintf(`UPDATE %s SET %s WHERE %s`,
+			s.qualified, strings.Join(setClauses, ", "), where),
+		args...); err != nil {
+		return fmt.Errorf("apply patch: %w", err)
+	}
+	return nil
 }
 
 // loadPatchRow loads the columns ApplyPatch may mutate and returns
@@ -944,7 +955,7 @@ func (s *Store) deleteMutable(ctx context.Context, namespace, name string) error
 			if _, err := tx.Exec(ctx,
 				fmt.Sprintf(`DELETE FROM %s WHERE namespace=$1 AND name=$2`, s.qualified),
 				namespace, name); err != nil {
-				return fmt.Errorf("hard delete: %w", err)
+				return fmt.Errorf("hard delete: %w", referencedError(err))
 			}
 			return nil
 		}
@@ -957,10 +968,25 @@ func (s *Store) deleteMutable(ctx context.Context, namespace, name string) error
 			fmt.Sprintf(`UPDATE %s SET deletion_timestamp = NOW()
 			             WHERE namespace=$1 AND name=$2`, s.qualified),
 			namespace, name); err != nil {
-			return fmt.Errorf("mark terminating: %w", err)
+			return fmt.Errorf("mark terminating: %w", referencedError(err))
 		}
 		return nil
 	})
+}
+
+// ErrReferenced reports a delete refused because other objects still
+// reference the row (migration 021: a Runtime used by Deployments).
+var ErrReferenced = errors.New("v1alpha1 store: still referenced")
+
+// referencedError maps a database refusal to delete a referenced row to
+// ErrReferenced, keeping the database's message (which names the
+// references).
+func referencedError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.ConstraintName == "runtimes_in_use" {
+		return fmt.Errorf("%w: %s", ErrReferenced, pgErr.Message)
+	}
+	return err
 }
 
 // jsonArrayNonEmpty reports whether raw decodes to a JSON array with
@@ -989,7 +1015,7 @@ func (s *Store) PurgeFinalized(ctx context.Context) (int64, error) {
 		  AND finalizers = '[]'::jsonb`, s.qualified)
 	cmdTag, err := s.pool.Exec(ctx, query)
 	if err != nil {
-		return 0, fmt.Errorf("purge finalized: %w", err)
+		return 0, fmt.Errorf("purge finalized: %w", referencedError(err))
 	}
 	return cmdTag.RowsAffected(), nil
 }
