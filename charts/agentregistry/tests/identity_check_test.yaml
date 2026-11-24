@@ -1,0 +1,59 @@
+suite: Agent identity check
+templates:
+  - configmap.yaml
+  - deployment.yaml
+  - postgresql-secret.yaml
+  - service.yaml
+  - validate.yaml
+
+tests:
+  - it: sets no identity environment by default
+    template: configmap.yaml
+    asserts:
+      - notExists:
+          path: data.AGENT_REGISTRY_IDENTITY_CHECK_ADDR
+
+  - it: sets the listen address and trust domain when enabled
+    template: configmap.yaml
+    set:
+      identityCheck: {enabled: true, trustDomain: tracefort.localhost}
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_IDENTITY_CHECK_ADDR
+          value: ":8090"
+      - equal:
+          path: data.AGENT_REGISTRY_IDENTITY_TRUST_DOMAIN
+          value: tracefort.localhost
+
+  - it: adds the identity container port when enabled
+    template: deployment.yaml
+    set:
+      identityCheck: {enabled: true, trustDomain: tracefort.localhost, port: 9443}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content: {name: identity, containerPort: 9443, protocol: TCP}
+
+  - it: has no identity container port by default
+    template: deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].ports
+          content: {name: identity, containerPort: 8090, protocol: TCP}
+
+  - it: adds the identity Service port when enabled
+    template: service.yaml
+    set:
+      identityCheck: {enabled: true, trustDomain: tracefort.localhost}
+    asserts:
+      - contains:
+          path: spec.ports
+          content: {name: identity, port: 8090, targetPort: identity, protocol: TCP}
+
+  - it: refuses to render without a trust domain
+    template: validate.yaml
+    set:
+      identityCheck: {enabled: true}
+    asserts:
+      - failedTemplate:
+          errorPattern: "identityCheck.enabled needs identityCheck.trustDomain"

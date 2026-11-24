@@ -49,3 +49,9 @@ spec:
       {{- if and (or (eq .Values.service.type "NodePort") (eq .Values.service.type "LoadBalancer")) .Values.service.nodePorts.mcp }}
       nodePort: {{ .Values.service.nodePorts.mcp }}
       {{- end }}
+    {{- if .Values.identityCheck.enabled }}
+    - name: identity
+      port: {{ .Values.identityCheck.port }}
+      targetPort: identity
+      protocol: TCP
+    {{- end }}

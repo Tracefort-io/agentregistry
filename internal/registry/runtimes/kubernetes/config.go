@@ -78,7 +78,15 @@ type gatewayConfig struct {
 	// destination the workloads' NetworkPolicy allows besides DNS.
 	Namespace string            `json:"namespace"`
 	PodLabels map[string]string `json:"podLabels"`
+	// Audience the agent's JWT-SVID for the gateway carries (default
+	// "agentgateway"); the gateway accepts no other
+	// (docs/auth/agent-identity-assertion.md).
+	Audience string `json:"audience,omitempty"`
 }
+
+// defaultGatewayAudience is the audience agents' JWT-SVIDs carry for the
+// gateway when the Runtime sets none.
+const defaultGatewayAudience = "agentgateway"
 
 // temporalConfig says where the Temporal frontend is (through agentgateway).
 type temporalConfig struct {
@@ -118,6 +126,9 @@ func decodeRuntimeConfig(m map[string]any) (runtimeConfig, error) {
 	}
 	if cfg.NamespacePrefix == "" {
 		cfg.NamespacePrefix = defaultNamespacePrefix
+	}
+	if strings.TrimSpace(cfg.Gateway.Audience) == "" {
+		cfg.Gateway.Audience = defaultGatewayAudience
 	}
 	if err := cfg.validate(); err != nil {
 		return runtimeConfig{}, fmt.Errorf("%s runtime config: %w", RuntimeType, err)

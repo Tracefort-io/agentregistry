@@ -319,3 +319,27 @@ func TestValidate_Policies(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_IdentityCheck(t *testing.T) {
+	tests := []struct {
+		name        string
+		addr        string
+		trustDomain string
+		wantErr     bool
+	}{
+		{"off", "", "", false},
+		{"valid", ":8090", "tracefort.localhost", false},
+		{"no trust domain", ":8090", "", true},
+		{"trust domain not a DNS name", ":8090", "Trace Fort", true},
+		{"address without a port", "8090", "tracefort.localhost", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := NewConfig()
+			cfg.IdentityCheckAddr, cfg.IdentityTrustDomain = tt.addr, tt.trustDomain
+			if err := Validate(cfg); (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

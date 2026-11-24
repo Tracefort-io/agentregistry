@@ -460,6 +460,9 @@ Called from templates/validate.yaml so it fires during helm template/install.
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if and .Values.identityCheck.enabled (not .Values.identityCheck.trustDomain) }}
+{{- $errors = append $errors "identityCheck.enabled needs identityCheck.trustDomain." }}
+{{- end }}
 {{- if eq .Values.secretStore.type "Database" }}
 {{- if not .Values.secretStore.encryptionKeySecretRef.name }}
 {{- $errors = append $errors "secretStore.encryptionKeySecretRef.name must be set when secretStore.type=Database" }}

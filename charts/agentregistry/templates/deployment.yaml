@@ -122,6 +122,11 @@ spec:
             - name: mcp
               containerPort: {{ .Values.service.targetPorts.mcp }}
               protocol: TCP
+            {{- if .Values.identityCheck.enabled }}
+            - name: identity
+              containerPort: {{ .Values.identityCheck.port }}
+              protocol: TCP
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "agentregistry.fullname" . }}-config

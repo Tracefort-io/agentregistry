@@ -134,6 +134,20 @@ approvals:
 # io.modelcontextprotocol.server.name label. See docs/declarative-cli.md.
 ociRegistries: []
 
+# @section Agent identity
+
+# -- The agent identity check (docs/auth/agent-identity-assertion.md): on
+# each request from an agent, agentgateway asks it which registered Agent and
+# Deployment the SPIFFE ID it verified belongs to; unknown and revoked IDs
+# are rejected. Served on a port of its own, added to the Service as
+# `identity`; allow only the gateway to reach it.
+identityCheck:
+  enabled: false
+  # -- Container and Service port of the check.
+  port: 8090
+  # -- SPIFFE trust domain of agent workloads (required when enabled).
+  trustDomain: ""
+
 # @section Policies
 
 # -- Rego policies kept in a GitHub or GitLab repository: read live from the

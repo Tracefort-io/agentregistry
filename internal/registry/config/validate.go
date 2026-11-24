@@ -2,9 +2,12 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"time"
+
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
 // orgNamespacePrefix is a prefix that, followed by a registry namespace,
@@ -35,6 +38,9 @@ func Validate(cfg *Config) error {
 		return err
 	}
 	if err := validateOpenBao(cfg); err != nil {
+		return err
+	}
+	if err := validateIdentityCheck(cfg); err != nil {
 		return err
 	}
 	if err := validateApprovals(cfg); err != nil {
@@ -212,6 +218,21 @@ func validateOpenBao(cfg *Config) error {
 		}
 	default:
 		return fmt.Errorf("OPENBAO_AUTH must be kubernetes, approle or token, got %q", cfg.OpenBaoAuth)
+	}
+	return nil
+}
+
+// validateIdentityCheck checks the agent identity check: a listen address
+// and the SPIFFE trust domain of agent workloads.
+func validateIdentityCheck(cfg *Config) error {
+	if cfg.IdentityCheckAddr == "" {
+		return nil
+	}
+	if _, _, err := net.SplitHostPort(cfg.IdentityCheckAddr); err != nil {
+		return fmt.Errorf("IDENTITY_CHECK_ADDR must be host:port or :port, got %q", cfg.IdentityCheckAddr)
+	}
+	if problems := k8svalidation.IsDNS1123Subdomain(cfg.IdentityTrustDomain); cfg.IdentityTrustDomain == "" || len(problems) > 0 {
+		return fmt.Errorf("IDENTITY_CHECK_ADDR needs IDENTITY_TRUST_DOMAIN, a DNS name, got %q", cfg.IdentityTrustDomain)
 	}
 	return nil
 }

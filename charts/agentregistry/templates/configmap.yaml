@@ -36,6 +36,12 @@ data:
   {{- end }}
   {{- end }}
   {{- end }}
+  {{- with .Values.identityCheck }}
+  {{- if .enabled }}
+  AGENT_REGISTRY_IDENTITY_CHECK_ADDR: {{ printf ":%v" .port | quote }}
+  AGENT_REGISTRY_IDENTITY_TRUST_DOMAIN: {{ .trustDomain | quote }}
+  {{- end }}
+  {{- end }}
   {{- with .Values.ociRegistries }}
   AGENT_REGISTRY_OCI_REGISTRIES: {{ . | toJson | quote }}
   {{- end }}

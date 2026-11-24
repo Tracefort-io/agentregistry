@@ -293,6 +293,10 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 		mcpAuthnProvider = authnProvider
 	}
 	mcpHTTPServer := startMCPServer(cfg, stores, mcpAuthnProvider, perKindHooks, options.MCPProtectedResourceMetadata, options.MCPResourceMetadataURL)
+	identityCheckServer, err := startIdentityCheckServer(cfg, stores)
+	if err != nil {
+		return err
+	}
 
 	// Start server in a goroutine so it doesn't block signal handling
 	go func() {
@@ -320,6 +324,11 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 	if mcpHTTPServer != nil {
 		if err := mcpHTTPServer.Shutdown(sctx); err != nil {
 			slog.Error("MCP server forced to shutdown", "error", err)
+		}
+	}
+	if identityCheckServer != nil {
+		if err := identityCheckServer.Shutdown(sctx); err != nil {
+			slog.Error("agent identity check forced to shutdown", "error", err)
 		}
 	}
 	// Hand leadership over now, so another replica takes over at once

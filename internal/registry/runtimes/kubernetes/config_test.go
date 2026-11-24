@@ -90,3 +90,13 @@ func TestDecodeDeployConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeRuntimeConfigAudience(t *testing.T) {
+	cfg, err := decodeRuntimeConfig(validRuntimeConfig())
+	require.NoError(t, err)
+	require.Equal(t, "agentgateway", cfg.Gateway.Audience)
+
+	cfg, err = decodeRuntimeConfig(withConfig(func(m map[string]any) { m["gateway"].(map[string]any)["audience"] = "gw" }))
+	require.NoError(t, err)
+	require.Equal(t, "gw", cfg.Gateway.Audience)
+}

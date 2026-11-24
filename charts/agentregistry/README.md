@@ -195,6 +195,9 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 | http.maxBodyBytes | int | `1048576` | Largest request body accepted, in bytes; 0 for no limit. |
 | http.readTimeout | string | `"30s"` | Time to read a whole request. |
 | http.writeTimeout | string | `"2m"` | Time to write a response (not applied to the MCP server, which streams). |
+| identityCheck | object | `{"enabled":false,"port":8090,"trustDomain":""}` | The agent identity check (docs/auth/agent-identity-assertion.md): on each request from an agent, agentgateway asks it which registered Agent and Deployment the SPIFFE ID it verified belongs to; unknown and revoked IDs are rejected. Served on a port of its own, added to the Service as `identity`; allow only the gateway to reach it. |
+| identityCheck.port | int | `8090` | Container and Service port of the check. |
+| identityCheck.trustDomain | string | `""` | SPIFFE trust domain of agent workloads (required when enabled). |
 | image.digest | string | `""` | Agent Registry image digest (overrides tag if set) |
 | image.name | string | `"server"` | Agent Registry image name |
 | image.pullPolicy | string | `"IfNotPresent"` | Agent Registry image pull policy |

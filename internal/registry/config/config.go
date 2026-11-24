@@ -57,6 +57,15 @@ type Config struct {
 	OpenBaoCACertFile          string        `env:"OPENBAO_CA_CERT_FILE" envDefault:""`
 	OpenBaoTimeout             time.Duration `env:"OPENBAO_TIMEOUT" envDefault:"10s"`
 
+	// Agent identity check (docs/auth/agent-identity-assertion.md). When
+	// IdentityCheckAddr is set, the registry serves, on that address only,
+	// the check agentgateway calls on each request from an agent: it
+	// resolves the SPIFFE ID the gateway verified to the registered Agent
+	// and Deployment, and rejects IDs outside IdentityTrustDomain, unknown
+	// or revoked. Only the gateway may reach that address.
+	IdentityCheckAddr   string `env:"IDENTITY_CHECK_ADDR" envDefault:""`
+	IdentityTrustDomain string `env:"IDENTITY_TRUST_DOMAIN" envDefault:""`
+
 	// MCP Registry compatibility (read-only)
 	//
 	// MCPRegistryCompatEnabled toggles the read-only MCP Registry v0.1
