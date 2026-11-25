@@ -82,11 +82,22 @@ type gatewayConfig struct {
 	// "agentgateway"); the gateway accepts no other
 	// (docs/auth/agent-identity-assertion.md).
 	Audience string `json:"audience,omitempty"`
+	// OpenBaoAudience is the audience of the agent's second JWT-SVID, which
+	// the gateway's guardrail callout uses to fetch MCP server credentials
+	// as the agent (default "openbao"; the registry's
+	// OPENBAO_WORKLOAD_AUDIENCE). Agents send it in OpenBaoSVIDHeader
+	// (default "x-openbao-svid"; the registry's GATEWAY_OPENBAO_SVID_HEADER).
+	OpenBaoAudience   string `json:"openBaoAudience,omitempty"`
+	OpenBaoSVIDHeader string `json:"openBaoSVIDHeader,omitempty"`
 }
 
-// defaultGatewayAudience is the audience agents' JWT-SVIDs carry for the
-// gateway when the Runtime sets none.
-const defaultGatewayAudience = "agentgateway"
+// Defaults of gatewayConfig when the Runtime sets none; they match the
+// registry's defaults.
+const (
+	defaultGatewayAudience   = "agentgateway"
+	defaultOpenBaoAudience   = "openbao"
+	defaultOpenBaoSVIDHeader = "x-openbao-svid"
+)
 
 // temporalConfig says where the Temporal frontend is (through agentgateway).
 type temporalConfig struct {
@@ -127,8 +138,14 @@ func decodeRuntimeConfig(m map[string]any) (runtimeConfig, error) {
 	if cfg.NamespacePrefix == "" {
 		cfg.NamespacePrefix = defaultNamespacePrefix
 	}
-	if strings.TrimSpace(cfg.Gateway.Audience) == "" {
-		cfg.Gateway.Audience = defaultGatewayAudience
+	for field, def := range map[*string]string{
+		&cfg.Gateway.Audience:          defaultGatewayAudience,
+		&cfg.Gateway.OpenBaoAudience:   defaultOpenBaoAudience,
+		&cfg.Gateway.OpenBaoSVIDHeader: defaultOpenBaoSVIDHeader,
+	} {
+		if strings.TrimSpace(*field) == "" {
+			*field = def
+		}
 	}
 	if err := cfg.validate(); err != nil {
 		return runtimeConfig{}, fmt.Errorf("%s runtime config: %w", RuntimeType, err)
@@ -152,6 +169,9 @@ func (c runtimeConfig) validate() error {
 	}
 	if problems := k8svalidation.IsDNS1123Label(c.Gateway.Namespace); len(problems) > 0 {
 		return fmt.Errorf("gateway.namespace %q: %s", c.Gateway.Namespace, strings.Join(problems, "; "))
+	}
+	if problems := k8svalidation.IsHTTPHeaderName(c.Gateway.OpenBaoSVIDHeader); len(problems) > 0 {
+		return fmt.Errorf("gateway.openBaoSVIDHeader %q: %s", c.Gateway.OpenBaoSVIDHeader, strings.Join(problems, "; "))
 	}
 	if len(c.Gateway.PodLabels) == 0 {
 		return fmt.Errorf("gateway.podLabels must select the gateway's pods")

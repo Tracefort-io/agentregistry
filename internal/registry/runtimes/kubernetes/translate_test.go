@@ -84,6 +84,8 @@ func TestBuildWorkload(t *testing.T) {
 	assert.Equal(t, "https://tracefort-agentgateway.tracefort-control-plane.svc:8443", env[envGatewayURL])
 	assert.Equal(t, "spiffe://tracefort.localhost/gateway/tracefort-control-plane/tracefort-agentgateway", env[envGatewaySPIFFEID])
 	assert.Equal(t, "agentgateway", env[envGatewayAudience], "the default audience")
+	assert.Equal(t, "openbao", env[envOpenBaoAudience])
+	assert.Equal(t, "x-openbao-svid", env[envOpenBaoSVIDHeader])
 	assert.Equal(t, "default", env[envOrg])
 	assert.Equal(t, "credit-checker", env[envAgent])
 	assert.Equal(t, "debug", env["LOG_LEVEL"])

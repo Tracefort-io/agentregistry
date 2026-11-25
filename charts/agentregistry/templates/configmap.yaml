@@ -42,6 +42,17 @@ data:
   AGENT_REGISTRY_IDENTITY_TRUST_DOMAIN: {{ .trustDomain | quote }}
   {{- end }}
   {{- end }}
+  {{- with .Values.gatewayConfig }}
+  {{- if .enabled }}
+  AGENT_REGISTRY_GATEWAY_CONFIG_ENABLED: "true"
+  AGENT_REGISTRY_GATEWAY_NAMESPACE: {{ .namespace | default $.Release.Namespace | quote }}
+  AGENT_REGISTRY_GATEWAY_NAME: {{ .gateway | quote }}
+  AGENT_REGISTRY_GATEWAY_LISTENER: {{ .listener | quote }}
+  AGENT_REGISTRY_GATEWAY_GUARDRAIL_SERVICE: {{ .guardrailService | quote }}
+  AGENT_REGISTRY_GATEWAY_GUARDRAIL_PORT: {{ .guardrailPort | quote }}
+  AGENT_REGISTRY_GATEWAY_OPENBAO_SVID_HEADER: {{ .openBaoSVIDHeader | quote }}
+  {{- end }}
+  {{- end }}
   {{- with .Values.ociRegistries }}
   AGENT_REGISTRY_OCI_REGISTRIES: {{ . | toJson | quote }}
   {{- end }}

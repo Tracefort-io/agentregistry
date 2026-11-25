@@ -66,6 +66,24 @@ type Config struct {
 	IdentityCheckAddr   string `env:"IDENTITY_CHECK_ADDR" envDefault:""`
 	IdentityTrustDomain string `env:"IDENTITY_TRUST_DOMAIN" envDefault:""`
 
+	// MCP routes on agentgateway (docs/auth/mcp-gateway.md). With
+	// GatewayConfigEnabled the registry writes, in GatewayNamespace, an
+	// AgentgatewayBackend, an HTTPRoute on listener GatewayListener of
+	// Gateway GatewayName, and an AgentgatewayPolicy for each live tag of
+	// every MCPServer with spec.remote. The listener's own policy has already
+	// asserted the agent's identity (IdentityCheckAddr); every MCP message
+	// goes to the guardrail callout GatewayGuardrailService, which authorizes
+	// it and, for a server with spec.credential, fetches the credential from
+	// OpenBao with the agent's JWT-SVID for OpenBao, sent in
+	// GatewayOpenBaoSVIDHeader.
+	GatewayConfigEnabled     bool   `env:"GATEWAY_CONFIG_ENABLED" envDefault:"false"`
+	GatewayNamespace         string `env:"GATEWAY_NAMESPACE" envDefault:""`
+	GatewayName              string `env:"GATEWAY_NAME" envDefault:""`
+	GatewayListener          string `env:"GATEWAY_LISTENER" envDefault:""`
+	GatewayGuardrailService  string `env:"GATEWAY_GUARDRAIL_SERVICE" envDefault:""`
+	GatewayGuardrailPort     int    `env:"GATEWAY_GUARDRAIL_PORT" envDefault:"9000"`
+	GatewayOpenBaoSVIDHeader string `env:"GATEWAY_OPENBAO_SVID_HEADER" envDefault:"x-openbao-svid"`
+
 	// MCP Registry compatibility (read-only)
 	//
 	// MCPRegistryCompatEnabled toggles the read-only MCP Registry v0.1

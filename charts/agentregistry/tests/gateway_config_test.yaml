@@ -1,0 +1,83 @@
+suite: MCP gateway config
+templates:
+  - gateway-config-rbac.yaml
+  - configmap.yaml
+  - validate.yaml
+
+tests:
+  - it: renders no RBAC by default
+    template: gateway-config-rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no RBAC when RBAC is off
+    template: gateway-config-rbac.yaml
+    set:
+      rbac.enabled: false
+      gatewayConfig: {enabled: true, gateway: gw, listener: agents, guardrailService: bridge}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: grants only the three kinds, in the gateway namespace
+    template: gateway-config-rbac.yaml
+    set:
+      gatewayConfig: {enabled: true, namespace: gateways, gateway: gw, listener: agents, guardrailService: bridge}
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: gateways
+        documentIndex: 0
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [agentgateway.dev], resources: [agentgatewaybackends, agentgatewaypolicies], verbs: [get, list, create, update, delete]}
+            - {apiGroups: [gateway.networking.k8s.io], resources: [httproutes], verbs: [get, list, create, update, delete]}
+        documentIndex: 0
+      - isKind:
+          of: RoleBinding
+        documentIndex: 1
+      - equal:
+          path: subjects[0]
+          value: {kind: ServiceAccount, name: RELEASE-NAME-agentregistry, namespace: NAMESPACE}
+        documentIndex: 1
+
+  - it: sets the environment, defaulting the namespace to the release's
+    template: configmap.yaml
+    set:
+      gatewayConfig: {enabled: true, gateway: gw, listener: agents, guardrailService: bridge}
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_GATEWAY_CONFIG_ENABLED
+          value: "true"
+      - equal:
+          path: data.AGENT_REGISTRY_GATEWAY_NAMESPACE
+          value: NAMESPACE
+      - notExists:
+          path: data.AGENT_REGISTRY_GATEWAY_AUDIENCE
+      - equal:
+          path: data.AGENT_REGISTRY_GATEWAY_GUARDRAIL_PORT
+          value: "9000"
+      - equal:
+          path: data.AGENT_REGISTRY_GATEWAY_OPENBAO_SVID_HEADER
+          value: x-openbao-svid
+
+  - it: sets no gateway environment when disabled
+    template: configmap.yaml
+    asserts:
+      - notExists:
+          path: data.AGENT_REGISTRY_GATEWAY_CONFIG_ENABLED
+
+  - it: refuses to render without the gateway's details
+    template: validate.yaml
+    set:
+      gatewayConfig: {enabled: true}
+    asserts:
+      - failedTemplate:
+          errorPattern: "gatewayConfig.enabled needs gatewayConfig.gateway"

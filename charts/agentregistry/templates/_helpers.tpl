@@ -463,6 +463,15 @@ Called from templates/validate.yaml so it fires during helm template/install.
 {{- if and .Values.identityCheck.enabled (not .Values.identityCheck.trustDomain) }}
 {{- $errors = append $errors "identityCheck.enabled needs identityCheck.trustDomain." }}
 {{- end }}
+{{- with .Values.gatewayConfig }}
+{{- if .enabled }}
+{{- range $field := list "gateway" "listener" "guardrailService" "openBaoSVIDHeader" }}
+{{- if not (get $.Values.gatewayConfig $field) }}
+{{- $errors = append $errors (printf "gatewayConfig.enabled needs gatewayConfig.%s." $field) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if eq .Values.secretStore.type "Database" }}
 {{- if not .Values.secretStore.encryptionKeySecretRef.name }}
 {{- $errors = append $errors "secretStore.encryptionKeySecretRef.name must be set when secretStore.type=Database" }}

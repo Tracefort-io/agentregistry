@@ -151,6 +151,10 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 	if err := wireCredentialGrants(cfg, secretStore, stores, &controllerConfig); err != nil {
 		return err
 	}
+	gatewayConfig, err := wireGatewayConfig(ctx, cfg, secretStore, stores, &controllerConfig)
+	if err != nil {
+		return err
+	}
 
 	// The Plugin controller resolves each plugin's pinned source pointer to a
 	// concrete commit/digest and records the manifest/inventory in PluginStatus
@@ -239,6 +243,7 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 	perKindHooks := crudPerKindHooks(options)
 	perKindHooks.Audit = auditWiring.recorder
 	wireSecretService(&perKindHooks, stores, secretStore)
+	hookGatewayConfig(&perKindHooks, gatewayConfig)
 	if options.RegistryValidator == nil {
 		var resolver secret.Resolver
 		if secretStore != nil {

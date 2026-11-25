@@ -184,6 +184,11 @@ This creates a `Role`/`RoleBinding` in each listed namespace (plus the installat
 | dnsPolicy | string | `""` | DNS policy for the pod |
 | extraEnvVars | list | `[]` | Array of extra environment variables for the Agent Registry container. Additive only — cannot override env vars the chart already renders. For credentialed fields use the dedicated knobs (e.g. `database.postgres.external.secretRef`). |
 | fullnameOverride | string | `""` | Override the full name of the chart |
+| gatewayConfig | object | `{"enabled":false,"gateway":"","guardrailPort":9000,"guardrailService":"","listener":"","namespace":"","openBaoSVIDHeader":"x-openbao-svid"}` | MCP routes on agentgateway. When enabled, the registry writes an AgentgatewayBackend, an HTTPRoute and an AgentgatewayPolicy for each live tag of every MCPServer with spec.remote, at /mcp/<namespace>/<name>/<tag> on the gateway's listener for agents, whose own policy has already asserted the agent's identity (identityCheck). Every MCP message goes to the guardrail callout, which authorizes it and, once a call is allowed, fetches a server's spec.credential from OpenBao as the calling agent. Also creates a Role and RoleBinding in `namespace` for those three kinds. See docs/auth/mcp-gateway.md. |
+| gatewayConfig.gateway | string | `""` | The Gateway and its listener for agents. |
+| gatewayConfig.guardrailService | string | `""` | The guardrail callout's Service in `namespace` (an ExtMcp server). |
+| gatewayConfig.namespace | string | `""` | Namespace of the Gateway and the generated objects (default: the release namespace). |
+| gatewayConfig.openBaoSVIDHeader | string | `"x-openbao-svid"` | Header in which agents send their JWT-SVID for OpenBao; only the callout receives it. |
 | global.imagePullSecrets | list | `[]` | Global Docker registry secret names |
 | global.imageRegistry | string | `""` | Global container image registry override |
 | hostAliases | list | `[]` | Add custom entries to /etc/hosts |

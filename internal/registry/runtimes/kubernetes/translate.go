@@ -46,16 +46,23 @@ const (
 	envSPIFFESocket    = "SPIFFE_ENDPOINT_SOCKET"
 	envGatewayURL      = "AGENTGATEWAY_URL"
 	envGatewaySPIFFEID = "AGENTGATEWAY_SPIFFE_ID"
-	// envGatewayAudience is the audience of the JWT-SVID the agent sends to
-	// the gateway.
-	envGatewayAudience = "AGENTGATEWAY_AUDIENCE"
-	envTemporalAddress = "TEMPORAL_ADDRESS"
-	envOrg             = "TRACEFORT_ORG"
-	envAgent           = "TRACEFORT_AGENT"
-	envOTLPEndpoint    = "OTEL_EXPORTER_OTLP_ENDPOINT"
+	// The audience of the JWT-SVID the agent sends to the gateway
+	// (docs/auth/agent-identity-assertion.md), and of the one it sends for
+	// fetching MCP server credentials, with the header that carries it
+	// (docs/auth/mcp-gateway.md).
+	envGatewayAudience   = "AGENTGATEWAY_AUDIENCE"
+	envOpenBaoAudience   = "OPENBAO_AUDIENCE"
+	envOpenBaoSVIDHeader = "AGENTGATEWAY_OPENBAO_SVID_HEADER"
+	envTemporalAddress   = "TEMPORAL_ADDRESS"
+	envOrg               = "TRACEFORT_ORG"
+	envAgent             = "TRACEFORT_AGENT"
+	envOTLPEndpoint      = "OTEL_EXPORTER_OTLP_ENDPOINT"
 )
 
-var reservedEnv = []string{envSPIFFESocket, envGatewayURL, envGatewaySPIFFEID, envGatewayAudience, envTemporalAddress, envOrg, envAgent, envOTLPEndpoint}
+var reservedEnv = []string{
+	envSPIFFESocket, envGatewayURL, envGatewaySPIFFEID, envGatewayAudience, envOpenBaoAudience, envOpenBaoSVIDHeader,
+	envTemporalAddress, envOrg, envAgent, envOTLPEndpoint,
+}
 
 // workload is everything the adapter creates for one Deployment.
 type workload struct {
@@ -172,6 +179,8 @@ func workloadEnv(in types.ApplyInput, rcfg runtimeConfig, org, agent string) ([]
 		{Name: envGatewayURL, Value: rcfg.Gateway.URL},
 		{Name: envGatewaySPIFFEID, Value: rcfg.Gateway.SPIFFEID},
 		{Name: envGatewayAudience, Value: rcfg.Gateway.Audience},
+		{Name: envOpenBaoAudience, Value: rcfg.Gateway.OpenBaoAudience},
+		{Name: envOpenBaoSVIDHeader, Value: rcfg.Gateway.OpenBaoSVIDHeader},
 		{Name: envTemporalAddress, Value: rcfg.Temporal.Address},
 		{Name: envOrg, Value: org},
 		{Name: envAgent, Value: agent},

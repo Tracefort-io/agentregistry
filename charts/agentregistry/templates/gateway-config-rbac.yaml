@@ -1,0 +1,61 @@
+{{- if and .Values.rbac.enabled .Values.gatewayConfig.enabled -}}
+{{/*
+What the registry writes for MCP routes on agentgateway, in the gateway's
+namespace only: AgentgatewayBackends, AgentgatewayPolicies and HTTPRoutes.
+*/}}
+{{- $namespace := .Values.gatewayConfig.namespace | default .Release.Namespace }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "agentregistry.fullname" . }}-gateway-config
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "agentregistry.labels" . | nindent 4 }}
+  {{- $annotations := include "agentregistry.annotations" (dict "annotations" dict "context" $) }}
+  {{- if $annotations }}
+  annotations:
+    {{- $annotations | nindent 4 }}
+  {{- end }}
+rules:
+  - apiGroups:
+      - agentgateway.dev
+    resources:
+      - agentgatewaybackends
+      - agentgatewaypolicies
+    verbs:
+      - get
+      - list
+      - create
+      - update
+      - delete
+  - apiGroups:
+      - gateway.networking.k8s.io
+    resources:
+      - httproutes
+    verbs:
+      - get
+      - list
+      - create
+      - update
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "agentregistry.fullname" . }}-gateway-config
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "agentregistry.labels" . | nindent 4 }}
+  {{- if $annotations }}
+  annotations:
+    {{- $annotations | nindent 4 }}
+  {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "agentregistry.fullname" . }}-gateway-config
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "agentregistry.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

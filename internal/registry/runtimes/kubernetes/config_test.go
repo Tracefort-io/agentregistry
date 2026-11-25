@@ -46,6 +46,7 @@ func TestDecodeRuntimeConfig(t *testing.T) {
 		{"no temporal address", withConfig(func(m map[string]any) { delete(m, "temporal") }), "temporal.address"},
 		{"bad namespace prefix", withConfig(func(m map[string]any) { m["namespacePrefix"] = "Org_" }), "namespacePrefix"},
 		{"unknown key", withConfig(func(m map[string]any) { m["auth"] = map[string]any{} }), "unknown field"},
+		{"bad OpenBao SVID header", withConfig(func(m map[string]any) { m["gateway"].(map[string]any)["openBaoSVIDHeader"] = "x svid" }), "openBaoSVIDHeader"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -58,6 +59,23 @@ func TestDecodeRuntimeConfig(t *testing.T) {
 			require.Equal(t, "org-", cfg.NamespacePrefix)
 		})
 	}
+}
+
+func TestDecodeRuntimeConfigAudiences(t *testing.T) {
+	cfg, err := decodeRuntimeConfig(validRuntimeConfig())
+	require.NoError(t, err)
+	require.Equal(t, "agentgateway", cfg.Gateway.Audience)
+	require.Equal(t, "openbao", cfg.Gateway.OpenBaoAudience)
+	require.Equal(t, "x-openbao-svid", cfg.Gateway.OpenBaoSVIDHeader)
+
+	cfg, err = decodeRuntimeConfig(withConfig(func(m map[string]any) {
+		gateway := m["gateway"].(map[string]any)
+		gateway["audience"], gateway["openBaoAudience"], gateway["openBaoSVIDHeader"] = "gw", "bao", "X-Bao-SVID"
+	}))
+	require.NoError(t, err)
+	require.Equal(t, "gw", cfg.Gateway.Audience)
+	require.Equal(t, "bao", cfg.Gateway.OpenBaoAudience)
+	require.Equal(t, "X-Bao-SVID", cfg.Gateway.OpenBaoSVIDHeader)
 }
 
 func TestDecodeDeployConfig(t *testing.T) {

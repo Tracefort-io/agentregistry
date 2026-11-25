@@ -148,6 +148,32 @@ identityCheck:
   # -- SPIFFE trust domain of agent workloads (required when enabled).
   trustDomain: ""
 
+# @section MCP gateway
+
+# -- MCP routes on agentgateway. When enabled, the registry writes an
+# AgentgatewayBackend, an HTTPRoute and an AgentgatewayPolicy for each live
+# tag of every MCPServer with spec.remote, at /mcp/<namespace>/<name>/<tag>
+# on the gateway's listener for agents, whose own policy has already
+# asserted the agent's identity (identityCheck). Every MCP message goes to
+# the guardrail callout, which authorizes it and, once a call is allowed,
+# fetches a server's spec.credential from OpenBao as the calling agent. Also
+# creates a Role and RoleBinding in `namespace` for those three kinds. See
+# docs/auth/mcp-gateway.md.
+gatewayConfig:
+  enabled: false
+  # -- Namespace of the Gateway and the generated objects (default: the
+  # release namespace).
+  namespace: ""
+  # -- The Gateway and its listener for agents.
+  gateway: ""
+  listener: ""
+  # -- The guardrail callout's Service in `namespace` (an ExtMcp server).
+  guardrailService: ""
+  guardrailPort: 9000
+  # -- Header in which agents send their JWT-SVID for OpenBao; only the
+  # callout receives it.
+  openBaoSVIDHeader: x-openbao-svid
+
 # @section Policies
 
 # -- Rego policies kept in a GitHub or GitLab repository: read live from the
