@@ -187,6 +187,28 @@ func TestSyncGrantsEachCredentialToTheAgentsThatListIt(t *testing.T) {
 	assert.Nil(t, writer.orgs["org-other"], "no grant across orgs")
 }
 
+func TestSyncGrantsOAuthClientCredentialsLikeAnyCredential(t *testing.T) {
+	w := newWorld()
+	crm := w.objects[v1alpha1.KindMCPServer+"/default/crm"].(*v1alpha1.MCPServer)
+	crm.Spec.Credential = &v1alpha1.MCPCredential{
+		Type:      v1alpha1.MCPCredentialTypeOAuthClientCredentials,
+		SecretRef: v1alpha1.SecretKeyRef{Name: "crm-api"},
+		OAuthClientCredentials: &v1alpha1.MCPOAuthClientCredentials{
+			TokenURL: "https://auth.example/token", ClientIDKey: "id", ClientSecretKey: "secret",
+		},
+	}
+	writer := newFakeWriter()
+	require.NoError(t, w.reconciler(t, writer).Sync(context.Background()))
+
+	name := GrantName("default", "crm", "crm-api")
+	org := writer.orgs["org-default"]
+	require.NotNil(t, org)
+	assert.Equal(t, "path \"agentregistry/data/secrets/crm-api\" {\n  capabilities = [\"read\"]\n}\n", org.policies[name],
+		"the client's identifier and secret are read together, once per login")
+	assert.Equal(t, []string{prefixA + "*", prefixB + "*"}, org.roles[name].SubjectGlobs)
+	assert.Equal(t, 1, org.roles[name].NumUses)
+}
+
 func TestSyncExcludesRevokedTerminatingAndDiscovered(t *testing.T) {
 	w := newWorld()
 	w.revoked[prefixA] = true

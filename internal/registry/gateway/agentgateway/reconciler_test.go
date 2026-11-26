@@ -103,6 +103,43 @@ func TestSyncCreatesUpdatesAndRemoves(t *testing.T) {
 		"policy and route go before the backend")
 }
 
+func TestSyncOAuthCredential(t *testing.T) {
+	oauthServer := func(name, url, resource string) *v1alpha1.MCPServer {
+		s := server("team", name, "1.0.0", url, "streamable-http")
+		s.Spec.Credential = &v1alpha1.MCPCredential{
+			Type:      v1alpha1.MCPCredentialTypeOAuthClientCredentials,
+			SecretRef: v1alpha1.SecretKeyRef{Name: name + "-client"},
+			OAuthClientCredentials: &v1alpha1.MCPOAuthClientCredentials{
+				TokenURL: "https://auth.example/token", ClientIDKey: "id", ClientSecretKey: "secret",
+				Scopes: []string{"a", "b"}, Resource: resource,
+			},
+		}
+		return s
+	}
+	defaulted := oauthServer("crm", "https://CRM.example/mcp/", "")
+	explicit := oauthServer("erp", "https://erp.example/mcp", "https://erp.example")
+
+	client := newFakeClient()
+	r, err := New(client, listOf(defaulted, explicit), fakeLocator{}, testConfig())
+	require.NoError(t, err)
+	require.NoError(t, r.Sync(context.Background()))
+
+	metadata := func(name string) map[string]any {
+		processors, _, _ := unstructured.NestedSlice(client.objects[PolicyGVK.Kind][ObjectName("team", name, "1.0.0")].Object,
+			"spec", "backend", "mcp", "guardrails", "processors")
+		return processors[0].(map[string]any)["remote"].(map[string]any)["metadata"].(map[string]any)
+	}
+	crm := metadata("crm")
+	assert.Equal(t, `"https://crm.example/mcp"`, crm["credential_resource"], "defaults to the server's canonical URI")
+	assert.Equal(t, `"a b"`, crm["credential_scope"])
+	assert.Equal(t, fmt.Sprintf("%q", credentialgrants.GrantName("team", "crm", "crm-client")), crm["credential_role"],
+		"the same grant as a Static credential of the Secret")
+	assert.Equal(t, `"Authorization"`, crm["credential_header"])
+	assert.Equal(t, `"Bearer"`, crm["credential_scheme"])
+	assert.NotContains(t, crm, "credential_key")
+	assert.Equal(t, `"https://erp.example"`, metadata("erp")["credential_resource"], "an explicit resource is kept")
+}
+
 func TestSyncSkipsServersItCannotRoute(t *testing.T) {
 	ctx := context.Background()
 	noLocator := server("team", "a", "1", "https://a.example/mcp", "streamable-http")

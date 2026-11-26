@@ -38,6 +38,7 @@ export type AgentSpec = {
 
 export type ApplyResult = {
     apiVersion?: string;
+    approvalRequest?: string;
     error?: string;
     kind?: string;
     name: string;
@@ -48,6 +49,55 @@ export type ApplyResult = {
 
 export type ApplyResultsResponse = {
     results: Array<ApplyResult> | null;
+};
+
+export type Body = {
+    /**
+     * Whether the caller is a registry admin
+     */
+    admin: boolean;
+    /**
+     * Whether the request carried a verified identity
+     */
+    authenticated: boolean;
+    /**
+     * Whether permissions come from the authorization service; false means the registry enforces none
+     */
+    enforced: boolean;
+    groups?: Array<string> | null;
+    /**
+     * Whether the caller is a client acting for itself
+     */
+    isClient?: boolean;
+    /**
+     * The issuer of the caller's token
+     */
+    issuer?: string;
+    /**
+     * The namespace the permissions apply to; all for every namespace
+     */
+    namespace: string;
+    /**
+     * Actions the caller may take per kind: read, list, apply, delete, deploy
+     */
+    permissions: {
+        [key: string]: Array<string> | null;
+    };
+    /**
+     * Actions the caller may ask approval for per kind: refused now, applied once an approver approves
+     */
+    requestable: {
+        [key: string]: Array<string> | null;
+    };
+    roles?: Array<string> | null;
+    /**
+     * The caller's subject (token sub claim)
+     */
+    subject?: string;
+    /**
+     * A display name for the caller
+     */
+    username?: string;
 };
 
 export type CommandEntry = {
@@ -293,10 +343,26 @@ export type McpArgument = {
     value?: string;
 };
 
+export type McpCredential = {
+    header?: string;
+    oauthClientCredentials?: McpoAuthClientCredentials;
+    scheme?: string;
+    secretRef: SecretKeyRef;
+    type?: string;
+};
+
 export type McpKeyValueInput = {
     isRequired?: boolean;
     name: string;
     value?: string;
+};
+
+export type McpoAuthClientCredentials = {
+    clientIdKey: string;
+    clientSecretKey: string;
+    resource?: string;
+    scopes?: Array<string> | null;
+    tokenUrl: string;
 };
 
 export type McpPackage = {
@@ -376,6 +442,7 @@ export type McpServerSource = {
 };
 
 export type McpServerSpec = {
+    credential?: McpCredential;
     description?: string;
     iconUrl?: string;
     remote?: McpRemote;
@@ -1086,6 +1153,10 @@ export type GetAgentData = {
          * Namespace (internal; defaults to 'default').
          */
         namespace?: string;
+        /**
+         * Return the version even if it was deleted.
+         */
+        includeTerminating?: boolean;
     };
     url: '/v0/agents/{name}/{tag}';
 };
@@ -1517,6 +1588,10 @@ export type GetMcpserverData = {
          * Namespace (internal; defaults to 'default').
          */
         namespace?: string;
+        /**
+         * Return the version even if it was deleted.
+         */
+        includeTerminating?: boolean;
     };
     url: '/v0/mcpservers/{name}/{tag}';
 };
@@ -1570,6 +1645,36 @@ export type ListTagsMcpserverResponses = {
 };
 
 export type ListTagsMcpserverResponse = ListTagsMcpserverResponses[keyof ListTagsMcpserverResponses];
+
+export type GetMeData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Namespace to report permissions for; all for every namespace
+         */
+        namespace?: string;
+    };
+    url: '/v0/me';
+};
+
+export type GetMeErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type GetMeError = GetMeErrors[keyof GetMeErrors];
+
+export type GetMeResponses = {
+    /**
+     * OK
+     */
+    200: Body;
+};
+
+export type GetMeResponse = GetMeResponses[keyof GetMeResponses];
 
 export type ListModelsData = {
     body?: never;
@@ -1701,6 +1806,10 @@ export type GetModelData = {
          * Namespace (internal; defaults to 'default').
          */
         namespace?: string;
+        /**
+         * Return the version even if it was deleted.
+         */
+        includeTerminating?: boolean;
     };
     url: '/v0/models/{name}/{tag}';
 };
@@ -1910,6 +2019,10 @@ export type GetPluginData = {
          * Namespace (internal; defaults to 'default').
          */
         namespace?: string;
+        /**
+         * Return the version even if it was deleted.
+         */
+        includeTerminating?: boolean;
     };
     url: '/v0/plugins/{name}/{tag}';
 };
@@ -2094,6 +2207,10 @@ export type GetPromptData = {
          * Namespace (internal; defaults to 'default').
          */
         namespace?: string;
+        /**
+         * Return the version even if it was deleted.
+         */
+        includeTerminating?: boolean;
     };
     url: '/v0/prompts/{name}/{tag}';
 };
@@ -2578,6 +2695,10 @@ export type GetSkillData = {
          * Namespace (internal; defaults to 'default').
          */
         namespace?: string;
+        /**
+         * Return the version even if it was deleted.
+         */
+        includeTerminating?: boolean;
     };
     url: '/v0/skills/{name}/{tag}';
 };

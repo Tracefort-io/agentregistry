@@ -36,23 +36,69 @@ type MCPServerSpec struct {
 	Credential *MCPCredential `json:"credential,omitempty" yaml:"credential,omitempty"`
 }
 
+// MCPCredentialType says what the gateway presents to an MCP server.
+type MCPCredentialType string
+
+const (
+	// MCPCredentialTypeStatic sends one value of the Secret as it is stored.
+	MCPCredentialTypeStatic MCPCredentialType = "Static"
+	// MCPCredentialTypeOAuthClientCredentials sends an access token that the
+	// gateway gets with the server's OAuth client credentials (RFC 6749
+	// section 4.4), held in the Secret.
+	MCPCredentialTypeOAuthClientCredentials MCPCredentialType = "OAuthClientCredentials"
+)
+
 // MCPCredential names the credential of an MCP server and how it is sent.
 type MCPCredential struct {
-	// SecretRef is a key of a registry Secret in the MCP server's own
-	// namespace; a credential never crosses namespaces.
+	// Type defaults to Static.
+	Type MCPCredentialType `json:"type,omitempty" yaml:"type,omitempty"`
+	// SecretRef is a registry Secret in the MCP server's own namespace; a
+	// credential never crosses namespaces. For Static, Key names the value
+	// sent; for OAuthClientCredentials, the keys are named in
+	// OAuthClientCredentials and Key is not set.
 	SecretRef SecretKeyRef `json:"secretRef" yaml:"secretRef"`
-	// Header carries the credential; defaults to Authorization.
+	// Header carries a Static credential; defaults to Authorization.
 	Header string `json:"header,omitempty" yaml:"header,omitempty"`
-	// Scheme, when set, is sent before the credential, e.g. "Bearer".
+	// Scheme, when set, is sent before a Static credential, e.g. "Bearer".
 	Scheme string `json:"scheme,omitempty" yaml:"scheme,omitempty"`
+	// OAuthClientCredentials is required for, and only allowed with, type
+	// OAuthClientCredentials. The access token is always sent as
+	// "Authorization: Bearer <token>".
+	OAuthClientCredentials *MCPOAuthClientCredentials `json:"oauthClientCredentials,omitempty" yaml:"oauthClientCredentials,omitempty"`
+}
+
+// MCPOAuthClientCredentials says how the gateway gets an access token for an
+// MCP server with the server's OAuth client: a client credentials grant at
+// TokenURL, authenticated with client_secret_basic.
+type MCPOAuthClientCredentials struct {
+	// TokenURL is the authorization server's token endpoint (https).
+	TokenURL string `json:"tokenUrl" yaml:"tokenUrl"`
+	// ClientIDKey and ClientSecretKey are the keys of SecretRef's Secret
+	// holding the client's identifier and secret.
+	ClientIDKey     string `json:"clientIdKey" yaml:"clientIdKey"`
+	ClientSecretKey string `json:"clientSecretKey" yaml:"clientSecretKey"`
+	// Scopes requested; none sends no scope parameter.
+	Scopes []string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
+	// Resource is the RFC 8707 resource indicator sent in the token request;
+	// defaults to the canonical URI of spec.remote.url, as the MCP
+	// authorization specification requires.
+	Resource string `json:"resource,omitempty" yaml:"resource,omitempty"`
 }
 
 // DefaultCredentialHeader is the header an MCPCredential uses by default.
 const DefaultCredentialHeader = "Authorization"
 
+// CredentialType is the credential's type, Static when not set.
+func (c *MCPCredential) CredentialType() MCPCredentialType {
+	if c == nil || c.Type == "" {
+		return MCPCredentialTypeStatic
+	}
+	return c.Type
+}
+
 // HeaderName is the header that carries the credential.
 func (c *MCPCredential) HeaderName() string {
-	if c == nil || c.Header == "" {
+	if c == nil || c.Header == "" || c.CredentialType() == MCPCredentialTypeOAuthClientCredentials {
 		return DefaultCredentialHeader
 	}
 	return c.Header

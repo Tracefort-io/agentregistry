@@ -80,7 +80,8 @@ func TestBuildRefusesStaticHeaders(t *testing.T) {
 func TestBuildObjects(t *testing.T) {
 	cfg := testConfig()
 	objects, err := Build(cfg, server("team", "CRM Tools", "1.0.0", "https://crm.example/mcp", "streamable-http"), &Credential{
-		Org: "org-team", Role: "mcp-crm-tools-abc", Path: "agentregistry/data/secrets/crm-key", Key: "token",
+		Type: v1alpha1.MCPCredentialTypeStatic,
+		Org:  "org-team", Role: "mcp-crm-tools-abc", Path: "agentregistry/data/secrets/crm-key", Key: "token",
 		Header: "Authorization", Scheme: "Bearer",
 	})
 	require.NoError(t, err)
@@ -123,6 +124,7 @@ func TestBuildObjects(t *testing.T) {
 		"spiffe_id":             `request.headers["x-agentregistry-spiffe-id"]`,
 		"agent":                 `request.headers["x-agentregistry-agent"]`,
 		"resource_id":           `"team/CRM Tools@1.0.0"`,
+		"credential_type":       `"Static"`,
 		"credential_org":        `"org-team"`,
 		"credential_auth_mount": `"jwt-spiffe"`,
 		"credential_role":       `"mcp-crm-tools-abc"`,
@@ -144,6 +146,67 @@ func TestBuildWithoutCredential(t *testing.T) {
 		"resource_id": `"team/crm@1.0.0"`, "openbao_svid_header": `"x-openbao-svid"`,
 	},
 		remote["metadata"], "the SVID header is named even without a credential, so it is always removed")
+}
+
+func TestBuildOAuthCredential(t *testing.T) {
+	objects, err := Build(testConfig(), server("team", "crm", "1.0.0", "https://crm.example/mcp", "streamable-http"), &Credential{
+		Type: v1alpha1.MCPCredentialTypeOAuthClientCredentials,
+		Org:  "org-team", Role: "mcp-crm-abc", Path: "agentregistry/data/secrets/crm-client",
+		Header: "Authorization", Scheme: "Bearer",
+		OAuth: &OAuthClient{
+			TokenURL: "https://auth.example/token", ClientIDKey: "client-id", ClientSecretKey: "client-secret",
+			Scope: "crm:read crm:write", Resource: "https://crm.example/mcp",
+		},
+	})
+	require.NoError(t, err)
+	processors, _, _ := unstructured.NestedSlice(objects[2].Object, "spec", "backend", "mcp", "guardrails", "processors")
+	metadata := processors[0].(map[string]any)["remote"].(map[string]any)["metadata"].(map[string]any)
+	assert.Equal(t, map[string]any{
+		"claims":                       "jwt",
+		"spiffe_id":                    `request.headers["x-agentregistry-spiffe-id"]`,
+		"agent":                        `request.headers["x-agentregistry-agent"]`,
+		"resource_id":                  `"team/crm@1.0.0"`,
+		"openbao_svid_header":          `"x-openbao-svid"`,
+		"credential_type":              `"OAuthClientCredentials"`,
+		"credential_org":               `"org-team"`,
+		"credential_auth_mount":        `"jwt-spiffe"`,
+		"credential_role":              `"mcp-crm-abc"`,
+		"credential_path":              `"agentregistry/data/secrets/crm-client"`,
+		"credential_header":            `"Authorization"`,
+		"credential_scheme":            `"Bearer"`,
+		"credential_token_url":         `"https://auth.example/token"`,
+		"credential_client_id_key":     `"client-id"`,
+		"credential_client_secret_key": `"client-secret"`,
+		"credential_scope":             `"crm:read crm:write"`,
+		"credential_resource":          `"https://crm.example/mcp"`,
+	}, metadata, "no credential_key: the token is got with the client's identifier and secret")
+}
+
+func TestCanonicalResource(t *testing.T) {
+	tests := []struct {
+		url, want string
+		wantErr   bool
+	}{
+		{"https://crm.example/mcp", "https://crm.example/mcp", false},
+		{"https://crm.example/mcp/", "https://crm.example/mcp", false},
+		{"https://crm.example/", "https://crm.example", false},
+		{"HTTPS://CRM.Example:8443/MCP", "https://crm.example:8443/MCP", false},
+		{"http://svc.ns.svc:8765/mcp", "http://svc.ns.svc:8765/mcp", false},
+		{"https://crm.example/mcp?x=1", "", true},
+		{"https://crm.example/mcp#a", "", true},
+		{"crm.example/mcp", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			got, err := CanonicalResource(tt.url)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestObjectNameIsUniquePerVersion(t *testing.T) {

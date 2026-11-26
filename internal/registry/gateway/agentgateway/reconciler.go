@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -183,14 +184,36 @@ func (r *Reconciler) credential(server *v1alpha1.MCPServer) (*Credential, error)
 	if err != nil {
 		return nil, fmt.Errorf("spec.credential: %w", err)
 	}
-	return &Credential{
+	cred := &Credential{
+		Type:   c.CredentialType(),
 		Org:    r.locator.OrgNamespace(namespace),
 		Role:   credentialgrants.GrantName(namespace, server.Metadata.Name, c.SecretRef.Name),
 		Path:   path,
-		Key:    c.SecretRef.Key,
 		Header: c.HeaderName(),
-		Scheme: c.Scheme,
-	}, nil
+	}
+	switch cred.Type {
+	case v1alpha1.MCPCredentialTypeStatic:
+		cred.Key, cred.Scheme = c.SecretRef.Key, c.Scheme
+	case v1alpha1.MCPCredentialTypeOAuthClientCredentials:
+		o := c.OAuthClientCredentials
+		if o == nil {
+			return nil, errors.New("spec.credential.oauthClientCredentials is not set")
+		}
+		resource := o.Resource
+		if resource == "" {
+			if resource, err = CanonicalResource(server.Spec.Remote.URL); err != nil {
+				return nil, fmt.Errorf("spec.credential: resource: %w", err)
+			}
+		}
+		cred.Scheme = "Bearer"
+		cred.OAuth = &OAuthClient{
+			TokenURL: o.TokenURL, ClientIDKey: o.ClientIDKey, ClientSecretKey: o.ClientSecretKey,
+			Scope: strings.Join(o.Scopes, " "), Resource: resource,
+		}
+	default:
+		return nil, fmt.Errorf("spec.credential: unsupported type %q", c.Type)
+	}
+	return cred, nil
 }
 
 // stampHash records the digest of what Build generated.

@@ -44,20 +44,27 @@ var Selector = managedByLabel + "=" + managedByValue + "," + componentLabel + "=
 // the caller and the server; openbao_svid_header names the header the
 // callout removes from every upstream request, so no server ever receives an
 // agent's SVID for OpenBao. The credential_* keys are set only for a server
-// with spec.credential.
+// with spec.credential; credential_key only for a Static one, the OAuth keys
+// only for an OAuthClientCredentials one.
 const (
-	metaClaims           = "claims"
-	metaSPIFFEID         = "spiffe_id"
-	metaAgent            = "agent"
-	metaResourceID       = "resource_id"
-	metaSVIDHeader       = "openbao_svid_header"
-	metaCredentialOrg    = "credential_org"
-	metaCredentialMount  = "credential_auth_mount"
-	metaCredentialRole   = "credential_role"
-	metaCredentialPath   = "credential_path"
-	metaCredentialKey    = "credential_key"
-	metaCredentialHeader = "credential_header"
-	metaCredentialScheme = "credential_scheme"
+	metaClaims                    = "claims"
+	metaSPIFFEID                  = "spiffe_id"
+	metaAgent                     = "agent"
+	metaResourceID                = "resource_id"
+	metaSVIDHeader                = "openbao_svid_header"
+	metaCredentialType            = "credential_type"
+	metaCredentialOrg             = "credential_org"
+	metaCredentialMount           = "credential_auth_mount"
+	metaCredentialRole            = "credential_role"
+	metaCredentialPath            = "credential_path"
+	metaCredentialKey             = "credential_key"
+	metaCredentialHeader          = "credential_header"
+	metaCredentialScheme          = "credential_scheme"
+	metaCredentialTokenURL        = "credential_token_url"
+	metaCredentialClientIDKey     = "credential_client_id_key"
+	metaCredentialClientSecretKey = "credential_client_secret_key"
+	metaCredentialScope           = "credential_scope"
+	metaCredentialResource        = "credential_resource"
 )
 
 var errUnsupportedRemote = errors.New("unsupported remote")
@@ -65,11 +72,27 @@ var errUnsupportedRemote = errors.New("unsupported remote")
 // Credential says where the guardrail callout fetches a server's credential
 // and how the gateway sends it.
 type Credential struct {
+	// Type is the MCPCredential type.
+	Type v1alpha1.MCPCredentialType
 	// Org is the OpenBao namespace; Role is the grant's role of the JWT auth
-	// method; Path is the KV v2 data path; Key the field holding the value.
+	// method; Path is the KV v2 data path; Key the field holding a Static
+	// value.
 	Org, Role, Path, Key string
 	// Header carries the value upstream, after Scheme when set.
 	Header, Scheme string
+	// OAuth is set for type OAuthClientCredentials.
+	OAuth *OAuthClient
+}
+
+// OAuthClient says how the callout gets an access token with the server's
+// OAuth client, whose identifier and secret are the Secret's keys
+// ClientIDKey and ClientSecretKey.
+type OAuthClient struct {
+	TokenURL, ClientIDKey, ClientSecretKey string
+	// Scope is the space-separated scope requested, empty for none.
+	Scope string
+	// Resource is the RFC 8707 resource indicator.
+	Resource string
 }
 
 var invalidNameChars = regexp.MustCompile(`[^a-z0-9]+`)
@@ -143,13 +166,22 @@ func Build(cfg Config, server *v1alpha1.MCPServer, cred *Credential) ([]*unstruc
 		metaSVIDHeader: celString(strings.ToLower(cfg.OpenBaoSVIDHeader)),
 	}
 	if cred != nil {
+		metadata[metaCredentialType] = celString(string(cred.Type))
 		metadata[metaCredentialOrg] = celString(cred.Org)
 		metadata[metaCredentialMount] = celString(strings.Trim(cfg.OpenBaoAuthMount, "/"))
 		metadata[metaCredentialRole] = celString(cred.Role)
 		metadata[metaCredentialPath] = celString(cred.Path)
-		metadata[metaCredentialKey] = celString(cred.Key)
 		metadata[metaCredentialHeader] = celString(cred.Header)
 		metadata[metaCredentialScheme] = celString(cred.Scheme)
+		if cred.OAuth != nil {
+			metadata[metaCredentialTokenURL] = celString(cred.OAuth.TokenURL)
+			metadata[metaCredentialClientIDKey] = celString(cred.OAuth.ClientIDKey)
+			metadata[metaCredentialClientSecretKey] = celString(cred.OAuth.ClientSecretKey)
+			metadata[metaCredentialScope] = celString(cred.OAuth.Scope)
+			metadata[metaCredentialResource] = celString(cred.OAuth.Resource)
+		} else {
+			metadata[metaCredentialKey] = celString(cred.Key)
+		}
 	}
 	policy := newObject(PolicyGVK, cfg.Namespace, objectName, source)
 	policy.Object["spec"] = map[string]any{
@@ -225,6 +257,21 @@ func mcpTarget(remote *v1alpha1.MCPRemote) (map[string]any, error) {
 		static["policies"] = map[string]any{"tls": tls}
 	}
 	return map[string]any{"name": "upstream", "static": static}, nil
+}
+
+// CanonicalResource is the canonical URI of an MCP server at rawURL, the
+// resource indicator the MCP authorization specification requires in token
+// requests: lowercase scheme and host, no trailing slash.
+func CanonicalResource(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", fmt.Errorf("%w: url %q must be an http or https URL", errUnsupportedRemote, rawURL)
+	}
+	if u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return "", fmt.Errorf("%w: url %q must not carry user info, a query or a fragment", errUnsupportedRemote, rawURL)
+	}
+	canonical := url.URL{Scheme: strings.ToLower(u.Scheme), Host: strings.ToLower(u.Host), Path: strings.TrimRight(u.Path, "/"), RawPath: strings.TrimRight(u.RawPath, "/")}
+	return canonical.String(), nil
 }
 
 func newObject(gvk schema.GroupVersionKind, namespace, name, source string) *unstructured.Unstructured {

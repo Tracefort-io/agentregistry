@@ -683,10 +683,14 @@ components:
       properties:
         header:
           type: string
+        oauthClientCredentials:
+          $ref: '#/components/schemas/MCPOAuthClientCredentials'
         scheme:
           type: string
         secretRef:
           $ref: '#/components/schemas/SecretKeyRef'
+        type:
+          type: string
       required:
       - secretRef
       type: object
@@ -701,6 +705,28 @@ components:
           type: string
       required:
       - name
+      type: object
+    MCPOAuthClientCredentials:
+      additionalProperties: false
+      properties:
+        clientIdKey:
+          type: string
+        clientSecretKey:
+          type: string
+        resource:
+          type: string
+        scopes:
+          items:
+            type: string
+          type:
+          - array
+          - "null"
+        tokenUrl:
+          type: string
+      required:
+      - tokenUrl
+      - clientIdKey
+      - clientSecretKey
       type: object
     MCPPackage:
       additionalProperties: false

@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -29,17 +30,40 @@ var forbiddenCredentialHeaders = []string{
 	"proxy-connection", "te", "trailer", "transfer-encoding", "upgrade",
 }
 
+// secretDataKey is a key of a Secret's data, as Kubernetes allows.
+var secretDataKey = regexp.MustCompile(`^[-._a-zA-Z0-9]{1,253}$`)
+
+// scopeToken is an OAuth scope-token (RFC 6749 section 3.3).
+var scopeToken = regexp.MustCompile(`^[\x21\x23-\x5B\x5D-\x7E]+$`)
+
 func validateMCPCredential(c *MCPCredential, namespace string) FieldErrors {
 	var errs FieldErrors
 	if c == nil {
 		return errs
 	}
 	errs = append(errs, validateSecretKeyRef(c.SecretRef, "spec.credential.secretRef")...)
+	if ns := c.SecretRef.Namespace; ns != "" && ns != namespaceOrDefault(namespace) {
+		errs.Append("spec.credential.secretRef.namespace", fmt.Errorf("%w: the Secret must be in the MCP server's own namespace", ErrInvalidRef))
+	}
+	switch c.CredentialType() {
+	case MCPCredentialTypeStatic:
+		errs = append(errs, validateStaticCredential(c)...)
+	case MCPCredentialTypeOAuthClientCredentials:
+		errs = append(errs, validateOAuthClientCredential(c)...)
+	default:
+		errs.Append("spec.credential.type", fmt.Errorf("%w: must be %q or %q (got %q)",
+			ErrInvalidFormat, MCPCredentialTypeStatic, MCPCredentialTypeOAuthClientCredentials, c.Type))
+	}
+	return errs
+}
+
+func validateStaticCredential(c *MCPCredential) FieldErrors {
+	var errs FieldErrors
 	if c.SecretRef.Key == "" {
 		errs.Append("spec.credential.secretRef.key", fmt.Errorf("%w: the key holding the credential", ErrRequiredField))
 	}
-	if ns := c.SecretRef.Namespace; ns != "" && ns != namespaceOrDefault(namespace) {
-		errs.Append("spec.credential.secretRef.namespace", fmt.Errorf("%w: the Secret must be in the MCP server's own namespace", ErrInvalidRef))
+	if c.OAuthClientCredentials != nil {
+		errs.Append("spec.credential.oauthClientCredentials", fmt.Errorf("%w: only for type %q", ErrInvalidRef, MCPCredentialTypeOAuthClientCredentials))
 	}
 	if c.Header != "" {
 		if !credentialHeaderToken.MatchString(c.Header) {
@@ -52,6 +76,84 @@ func validateMCPCredential(c *MCPCredential, namespace string) FieldErrors {
 		errs.Append("spec.credential.scheme", fmt.Errorf("%w: %q is not an auth scheme", ErrInvalidFormat, c.Scheme))
 	}
 	return errs
+}
+
+// validateOAuthClientCredential checks an OAuth client credential: the token
+// is always sent as "Authorization: Bearer", so header, scheme and the
+// Secret's single key are not set.
+func validateOAuthClientCredential(c *MCPCredential) FieldErrors {
+	var errs FieldErrors
+	const path = "spec.credential.oauthClientCredentials"
+	if c.SecretRef.Key != "" {
+		errs.Append("spec.credential.secretRef.key", fmt.Errorf("%w: name the keys in %s instead", ErrInvalidRef, path))
+	}
+	if c.Header != "" || c.Scheme != "" {
+		errs.Append("spec.credential", fmt.Errorf("%w: header and scheme are fixed to Authorization: Bearer for type %q",
+			ErrInvalidRef, MCPCredentialTypeOAuthClientCredentials))
+	}
+	o := c.OAuthClientCredentials
+	if o == nil {
+		errs.Append(path, fmt.Errorf("%w: for type %q", ErrRequiredField, MCPCredentialTypeOAuthClientCredentials))
+		return errs
+	}
+	if err := validateTokenURL(o.TokenURL); err != nil {
+		errs.Append(path+".tokenUrl", err)
+	}
+	for _, k := range []struct{ field, key string }{{"clientIdKey", o.ClientIDKey}, {"clientSecretKey", o.ClientSecretKey}} {
+		field, key := k.field, k.key
+		if key == "" {
+			errs.Append(path+"."+field, fmt.Errorf("%w", ErrRequiredField))
+		} else if !secretDataKey.MatchString(key) {
+			errs.Append(path+"."+field, fmt.Errorf("%w: %q is not a Secret key", ErrInvalidFormat, key))
+		}
+	}
+	if o.ClientIDKey != "" && o.ClientIDKey == o.ClientSecretKey {
+		errs.Append(path+".clientSecretKey", fmt.Errorf("%w: must differ from clientIdKey", ErrInvalidRef))
+	}
+	for i, scope := range o.Scopes {
+		if !scopeToken.MatchString(scope) {
+			errs.Append(fmt.Sprintf("%s.scopes[%d]", path, i), fmt.Errorf("%w: %q is not an OAuth scope", ErrInvalidFormat, scope))
+		} else if slices.Index(o.Scopes, scope) != i {
+			errs.Append(fmt.Sprintf("%s.scopes[%d]", path, i), fmt.Errorf("%w: %q is repeated", ErrInvalidFormat, scope))
+		}
+	}
+	if o.Resource != "" {
+		if err := validateResourceIndicator(o.Resource); err != nil {
+			errs.Append(path+".resource", err)
+		}
+	}
+	return errs
+}
+
+// validateTokenURL checks a token endpoint: https, since the client
+// authenticates with its secret (RFC 6749 sections 2.3.1 and 3.2), with a
+// host and no user info or fragment.
+func validateTokenURL(raw string) error {
+	if raw == "" {
+		return fmt.Errorf("%w", ErrRequiredField)
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
+		return fmt.Errorf("%w: %q must be an https URL", ErrInvalidFormat, raw)
+	}
+	if u.User != nil || u.Fragment != "" || strings.HasSuffix(raw, "#") {
+		return fmt.Errorf("%w: %q must not carry user info or a fragment", ErrInvalidFormat, raw)
+	}
+	return nil
+}
+
+// validateResourceIndicator checks an RFC 8707 resource: an absolute URI
+// without a fragment; a query is refused too, which RFC 8707 says it SHOULD
+// NOT have.
+func validateResourceIndicator(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Opaque != "" || u.Host == "" {
+		return fmt.Errorf("%w: %q must be an absolute URI", ErrInvalidFormat, raw)
+	}
+	if u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.HasSuffix(raw, "#") {
+		return fmt.Errorf("%w: %q must not carry user info, a query or a fragment", ErrInvalidFormat, raw)
+	}
+	return nil
 }
 
 func namespaceOrDefault(namespace string) string {

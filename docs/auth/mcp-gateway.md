@@ -97,6 +97,49 @@ external authorization runs before MCP guardrails, has no request method
 setting and cannot chain calls), so the callout makes them; it holds the
 credential only for the request.
 
+### OAuth client credentials
+
+A server that accepts OAuth access tokens gets a credential of type
+`OAuthClientCredentials`. The Secret holds the server's OAuth client (its
+identifier and secret); agents never hold the client or a token:
+
+```yaml
+spec:
+  remote:
+    type: streamable-http
+    url: https://crm.example.com/mcp
+  credential:
+    type: OAuthClientCredentials
+    secretRef:
+      name: crm-oauth-client        # keys named below; no secretRef.key
+    oauthClientCredentials:
+      tokenUrl: https://auth.example.com/oauth2/token
+      clientIdKey: client-id
+      clientSecretKey: client-secret
+      scopes: [crm:read]             # optional
+      resource: https://crm.example.com/mcp   # optional; defaults to spec.remote.url
+```
+
+The grant is the same as for a Static credential: the agents whose Agent
+lists the server may read the Secret, once per login. After the PDP allows
+a call, the callout reads the client from OpenBao as the agent, as above,
+then gets an access token with the client credentials grant (RFC 6749
+section 4.4) at `tokenUrl`, authenticating with `client_secret_basic`, and
+has the gateway send `Authorization: Bearer <token>` upstream. Every token
+request carries the server's canonical URI as `resource` (RFC 8707), as the
+MCP authorization specification requires; by default the registry derives
+it from `spec.remote.url` (lowercase scheme and host, no trailing slash).
+
+The callout keeps a token until 30 seconds before `expires_in` (a token
+without `expires_in` is not kept), keyed by everything the request was made
+with, the client secret included. OpenBao is still read on every call, so a
+kept token is only sent for an agent that OpenBao has just let read the
+client, and a rotated client secret gets a new token. Token endpoints must
+be https; redirects are not followed; the callout trusts the system roots
+plus `OAUTH_CA_FILE`. The token is the server's client's, not the agent's:
+the upstream server sees the client, and the resolved identity headers name
+the agent.
+
 ## Verification
 
 On k3s (agentgateway v1.7.0), 2026-11-25, with a test MCP server that reports
@@ -123,7 +166,11 @@ SVIDs for the agent pod's SPIFFE ID:
   is accepted for `spec.remote`, and the gateway sends the server's
   credential there. Publishing by a registry-writer needs an approval, the
   credential must be in the server's namespace, and OPA decides every call,
-  but nothing verifies who runs the endpoint.
+  but nothing verifies who runs the endpoint. The same holds for an OAuth
+  credential's `tokenUrl`, which receives the client secret.
+- **A kept OAuth token is sent until it expires.** The callout does not see
+  the upstream response of most methods, so a token the authorization
+  server revokes early keeps being sent until its `expires_in` runs out.
 - **Three methods are decided after the upstream call.** agentgateway runs
   `resources/subscribe`, `resources/unsubscribe` and `completion/complete`
   only through the response phase of its guardrails: the server receives the
