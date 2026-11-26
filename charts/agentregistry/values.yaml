@@ -237,6 +237,21 @@ audit:
     # extraEnvVars (OTEL_EXPORTER_OTLP_HEADERS, ...).
     endpoint: ""
 
+# @section Tracing
+
+# -- Traces of the REST API, the MCP server, the agent identity check and the
+# registry's calls to in-cluster services (the PDP, OpenBao, ...), exported
+# over OTLP/HTTP. The registry continues the W3C trace context its callers
+# send (agentgateway), and passes it on.
+tracing:
+  # -- Export traces.
+  enabled: false
+  # -- The collector's traces URL, used as-is, so it includes the path, for
+  # example http://otel-collector:4318/v1/traces. Sets
+  # OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, so traces can go to another collector
+  # than audit logs.
+  endpoint: ""
+
 # @section Authentication and authorization
 
 # -- Authentication (JWT) and authorization (an OpenID AuthZEN 1.0 PDP). Settings

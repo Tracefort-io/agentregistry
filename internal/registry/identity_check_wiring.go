@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/agentregistry-dev/agentregistry/internal/registry/config"
+	"github.com/agentregistry-dev/agentregistry/internal/registry/tracing"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/workloadidentity"
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
 	"github.com/agentregistry-dev/agentregistry/pkg/logging"
@@ -34,7 +35,7 @@ func startIdentityCheckServer(cfg *config.Config, stores map[string]*v1alpha1sto
 	}
 	srv := &http.Server{
 		Addr:              cfg.IdentityCheckAddr,
-		Handler:           workloadidentity.NewHandler(resolver, identityCheckLogger),
+		Handler:           tracing.Handler("agentregistry-identity-check", workloadidentity.NewHandler(resolver, identityCheckLogger)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

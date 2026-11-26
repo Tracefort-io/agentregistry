@@ -37,6 +37,7 @@ import (
 	microsoftruntime "github.com/agentregistry-dev/agentregistry/internal/registry/runtimes/microsoft"
 	deploymentsvc "github.com/agentregistry-dev/agentregistry/internal/registry/service/deployment"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/telemetry"
+	"github.com/agentregistry-dev/agentregistry/internal/registry/tracing"
 	arv0 "github.com/agentregistry-dev/agentregistry/pkg/api/v0"
 	"github.com/agentregistry-dev/agentregistry/pkg/api/v1alpha1"
 	"github.com/agentregistry-dev/agentregistry/pkg/gitutil"
@@ -69,6 +70,17 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 	defer cancel()
 
 	setupLogging(cfg.LogLevel)
+
+	// Before any server or client is built, so every span is exported.
+	shutdownTracing, err := tracing.Init(ctx, cfg.TracingOTLP, cfg.Version)
+	if err != nil {
+		return fmt.Errorf("configure tracing: %w", err)
+	}
+	defer func() {
+		if err := shutdownTracing(context.Background()); err != nil {
+			slog.Error("failed to flush trace exporter", "error", err)
+		}
+	}()
 
 	// The default configuration omits authentication. Integrators can supply
 	// authentication and authorization providers through AppOptions; with
@@ -959,7 +971,7 @@ func startMCPServer(
 	// No write timeout: MCP responses may stream for as long as the session.
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.Harden(cfg, mux),
+		Handler:           tracing.Handler("agentregistry-mcp", api.Harden(cfg, mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       cfg.HTTPReadTimeout,
 		IdleTimeout:       cfg.HTTPIdleTimeout,

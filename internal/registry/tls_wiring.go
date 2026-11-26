@@ -7,13 +7,16 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/agentregistry-dev/agentregistry/internal/registry/tracing"
 )
 
 // httpClientWithCA returns an HTTP client with the given timeout that, when
 // caFile is set, trusts only the PEM certificates in it: the private CA of
-// an in-cluster service. setting names the option in errors.
+// an in-cluster service. setting names the option in errors. Its requests
+// are traced and carry the trace context (tracing.Transport).
 func httpClientWithCA(timeout time.Duration, caFile, setting string) (*http.Client, error) {
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{Timeout: timeout, Transport: tracing.Transport(nil)}
 	if caFile == "" {
 		return client, nil
 	}
@@ -25,9 +28,9 @@ func httpClientWithCA(timeout time.Duration, caFile, setting string) (*http.Clie
 	if !roots.AppendCertsFromPEM(pem) {
 		return nil, fmt.Errorf("%s %s holds no PEM certificates", setting, caFile)
 	}
-	client.Transport = &http.Transport{
+	client.Transport = tracing.Transport(&http.Transport{
 		Proxy:           http.ProxyFromEnvironment,
 		TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
-	}
+	})
 	return client, nil
 }

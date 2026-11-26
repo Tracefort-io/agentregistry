@@ -17,6 +17,7 @@ import (
 	"github.com/agentregistry-dev/agentregistry/internal/registry/api/router"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/config"
 	"github.com/agentregistry-dev/agentregistry/internal/registry/telemetry"
+	"github.com/agentregistry-dev/agentregistry/internal/registry/tracing"
 	arv0 "github.com/agentregistry-dev/agentregistry/pkg/api/v0"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/auth"
 )
@@ -188,7 +189,8 @@ func NewServer(
 		return nil, err
 	}
 
-	handler := Middleware(cfg, mux)
+	// Traced outermost, so a span covers the hardening, CORS and routing too.
+	handler := tracing.Handler("agentregistry-api", Middleware(cfg, mux))
 
 	server := &Server{
 		config:  cfg,

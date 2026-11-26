@@ -5,6 +5,11 @@ import (
 	"errors"
 	"fmt"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/agentregistry-dev/agentregistry/internal/registry/tracing"
 	"github.com/agentregistry-dev/agentregistry/pkg/registry/v1alpha1store"
 )
 
@@ -60,7 +65,42 @@ func NewResolver(trustDomain string, history HistoryFunc) (*Resolver, error) {
 // never revoked, with the org, agent and Deployment UID of that assignment.
 // A rejection wraps one of the Err* reasons; any other error means the
 // records could not be read.
-func (r *Resolver) Resolve(ctx context.Context, tokenSubject, certificateID string) (Resolution, error) {
+func (r *Resolver) Resolve(ctx context.Context, tokenSubject, certificateID string) (res Resolution, err error) {
+	ctx, span := tracing.Tracer().Start(ctx, "identity.resolve",
+		trace.WithAttributes(attribute.String("spiffe.id", tokenSubject)))
+	defer func() {
+		span.SetAttributes(attribute.String("identity.outcome", outcome(err)))
+		if err == nil {
+			span.SetAttributes(
+				attribute.String("agentregistry.agent", res.AgentNamespace+"/"+res.AgentName+":"+res.AgentTag),
+				attribute.String("agentregistry.deployment", res.DeploymentNamespace+"/"+res.DeploymentName),
+			)
+		} else if !Rejected(err) {
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+	return r.resolve(ctx, tokenSubject, certificateID)
+}
+
+// outcome names a resolution's result for traces: resolved, the rejection
+// reason, or error when the records could not be read.
+func outcome(err error) string {
+	for reason, name := range map[error]string{
+		ErrMissing: "missing", ErrMismatch: "mismatch", ErrMalformed: "malformed", ErrUnknown: "unknown",
+		ErrRevoked: "revoked", ErrRecordMismatch: "record_mismatch",
+	} {
+		if errors.Is(err, reason) {
+			return name
+		}
+	}
+	if err == nil {
+		return "resolved"
+	}
+	return "error"
+}
+
+func (r *Resolver) resolve(ctx context.Context, tokenSubject, certificateID string) (Resolution, error) {
 	if tokenSubject == "" || certificateID == "" {
 		return Resolution{}, ErrMissing
 	}
@@ -71,7 +111,14 @@ func (r *Resolver) Resolve(ctx context.Context, tokenSubject, certificateID stri
 	if err != nil {
 		return Resolution{}, err
 	}
-	events, err := r.history(ctx, id.Prefix())
+	hctx, hspan := tracing.Tracer().Start(ctx, "identity.history",
+		trace.WithAttributes(attribute.String("spiffe.id.prefix", id.Prefix())))
+	events, err := r.history(hctx, id.Prefix())
+	hspan.SetAttributes(attribute.Int("identity.events", len(events)))
+	if err != nil {
+		hspan.SetStatus(codes.Error, err.Error())
+	}
+	hspan.End()
 	if err != nil {
 		return Resolution{}, fmt.Errorf("read identity records: %w", err)
 	}

@@ -89,6 +89,12 @@ data:
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .otlp.endpoint | quote }}
   {{- end }}
   {{- end }}
+  {{- with .Values.tracing }}
+  AGENT_REGISTRY_TRACING_OTLP: {{ .enabled | quote }}
+  {{- if and .enabled .endpoint }}
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: {{ .endpoint | quote }}
+  {{- end }}
+  {{- end }}
   {{- with .Values.http }}
   {{- with .corsAllowedOrigins }}
   AGENT_REGISTRY_CORS_ALLOWED_ORIGINS: {{ join "," . | quote }}

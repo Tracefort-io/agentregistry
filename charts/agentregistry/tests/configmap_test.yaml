@@ -140,6 +140,34 @@ tests:
           path: data.OTEL_EXPORTER_OTLP_ENDPOINT
           value: http://otel-collector:4318
 
+  - it: leaves tracing off by default
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_TRACING_OTLP
+          value: "false"
+      - notExists:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+
+  - it: renders trace export to its own collector URL
+    set:
+      tracing:
+        enabled: true
+        endpoint: http://otel-collector-traces:4318/v1/traces
+      audit:
+        otlp:
+          enabled: true
+          endpoint: http://otel-collector-logs:4318
+    asserts:
+      - equal:
+          path: data.AGENT_REGISTRY_TRACING_OTLP
+          value: "true"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+          value: http://otel-collector-traces:4318/v1/traces
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://otel-collector-logs:4318
+
   - it: turns the audit log off
     set:
       audit:

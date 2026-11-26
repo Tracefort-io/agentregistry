@@ -241,6 +241,15 @@ type Config struct {
 	// (for example OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318).
 	AuditOTLP bool `env:"AUDIT_OTLP" envDefault:"false"`
 
+	// Tracing
+	//
+	// TracingOTLP exports traces of the REST API, the MCP server, the agent
+	// identity check and the registry's calls to in-cluster services over
+	// OTLP/HTTP, continuing the W3C trace context its callers send.
+	// Configured by the standard OTEL_EXPORTER_OTLP_* variables; use
+	// OTEL_EXPORTER_OTLP_TRACES_ENDPOINT when audit logs go elsewhere.
+	TracingOTLP bool `env:"TRACING_OTLP" envDefault:"false"`
+
 	// Approvals (OpenID AuthZEN Access Request and Approval Profile)
 	//
 	// ApprovalsEnabled holds batch-apply writes that the PDP refuses but
